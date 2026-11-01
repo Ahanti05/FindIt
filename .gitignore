@@ -1,0 +1,52 @@
+# Node / npm
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Build output
+dist/
+build/
+
+# Vite cache
+.vite/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+venv/
+env/
+.venv/
+*.egg-info/
+dist-info/
+*.pt          # PyTorch / YOLO model weights
+*.onnx
+
+# Logs
+logs/
+*.log
+
+# Uploads (local dev)
+uploads/
+tmp/

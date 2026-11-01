@@ -1,0 +1,266 @@
+/* ── Google Fonts – must come first before all other rules ────────────── */
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap");
+
+@import "tailwindcss";
+
+@theme {
+  /* ── FindIt Design Tokens ─────────────────────────────────────────── */
+  --color-ink-900: #0d1b2a;
+  --color-ink-800: #1b2b3c;
+  --color-ink-700: #2c3e55;
+  --color-ink-500: #4a5e74;
+  --color-ink-300: #8fa3b8;
+  --color-ink-100: #d8e4ef;
+
+  --color-canvas: #f7f6f3;
+  --color-canvas-dark: #eeece8;
+
+  --color-violet-600: #6d5bd0;
+  --color-violet-500: #7c6ee0;
+  --color-violet-400: #9a8cf0;
+  --color-violet-100: #ede9fb;
+  --color-violet-50: #f5f3ff;
+
+  --color-teal-600: #0d9488;
+  --color-teal-500: #14b8a6;
+  --color-teal-400: #2dd4bf;
+  --color-teal-100: #ccfbf1;
+  --color-teal-50: #f0fdfa;
+
+  --color-amber-500: #f59e0b;
+  --color-amber-400: #fbbf24;
+  --color-amber-100: #fef3c7;
+  --color-amber-50: #fffbeb;
+
+  --color-green-500: #22c55e;
+  --color-green-100: #dcfce7;
+
+  --color-red-500: #ef4444;
+  --color-red-100: #fee2e2;
+
+  --font-sans: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-display: "Manrope", "Plus Jakarta Sans", sans-serif;
+
+  --radius-card: 12px;
+  --radius-btn: 8px;
+  --radius-pill: 999px;
+
+  --shadow-card: 0 1px 3px rgba(13, 27, 42, 0.06), 0 4px 16px rgba(13, 27, 42, 0.06);
+  --shadow-card-hover: 0 4px 12px rgba(13, 27, 42, 0.10), 0 12px 32px rgba(13, 27, 42, 0.08);
+  --shadow-modal: 0 8px 32px rgba(13, 27, 42, 0.18);
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-canvas);
+  color: var(--color-ink-900);
+  min-height: 100vh;
+}
+
+/* ── Scrollbar ────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-ink-100); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-ink-300); }
+
+/* ── Focus ring ───────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--color-violet-500);
+  outline-offset: 2px;
+}
+
+/* ── Animations ───────────────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.6; transform: scale(0.85); }
+}
+
+@keyframes check-pop {
+  0%   { transform: scale(0) rotate(-10deg); opacity: 0; }
+  70%  { transform: scale(1.2) rotate(5deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+
+.animate-fade-in  { animation: fadeIn 0.35s ease both; }
+.animate-slide-up { animation: slideUp 0.45s cubic-bezier(0.22,1,0.36,1) both; }
+.animate-check-pop { animation: check-pop 0.5s cubic-bezier(0.34,1.56,0.64,1) both; }
+
+/* ── Skeleton shimmer ─────────────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-canvas-dark) 25%,
+    #e5e2db 50%,
+    var(--color-canvas-dark) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 6px;
+  display: inline-block;
+}
+
+/* ── Card ─────────────────────────────────────────────────────────────── */
+.card {
+  background: #fff;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  position: relative;
+}
+.card:hover { box-shadow: var(--shadow-card-hover); }
+.card-lift:hover { transform: translateY(-2px); }
+
+/* ── Buttons ──────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  border-radius: var(--radius-btn);
+  font-weight: 600;
+  font-size: 0.9rem;
+  line-height: 1.25;
+  cursor: pointer;
+  border: none;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn-primary {
+  background: var(--color-violet-600);
+  color: #fff;
+}
+.btn-primary:not(:disabled):hover { background: var(--color-violet-500); transform: translateY(-1px); }
+.btn-teal {
+  background: var(--color-teal-600);
+  color: #fff;
+}
+.btn-teal:not(:disabled):hover { background: var(--color-teal-500); transform: translateY(-1px); }
+.btn-ghost {
+  background: transparent;
+  color: var(--color-ink-700);
+  border: 1.5px solid var(--color-ink-100);
+}
+.btn-ghost:not(:disabled):hover {
+  background: var(--color-canvas-dark);
+  border-color: var(--color-ink-300);
+}
+.btn-danger { background: var(--color-red-500); color: #fff; }
+.btn-sm { padding: 0.4rem 0.875rem; font-size: 0.825rem; }
+.btn-lg { padding: 0.875rem 1.75rem; font-size: 1rem; }
+.btn-icon { padding: 0.5rem; border-radius: var(--radius-btn); }
+
+/* ── Badge ────────────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.badge-violet  { background: var(--color-violet-100); color: var(--color-violet-600); }
+.badge-teal    { background: var(--color-teal-100);   color: var(--color-teal-600); }
+.badge-amber   { background: var(--color-amber-100);  color: #92400e; }
+.badge-green   { background: var(--color-green-100);  color: #15803d; }
+.badge-red     { background: var(--color-red-100);    color: #b91c1c; }
+.badge-neutral { background: var(--color-ink-100);    color: var(--color-ink-700); }
+
+/* ── Form inputs ──────────────────────────────────────────────────────── */
+.input {
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  border: 1.5px solid var(--color-ink-100);
+  border-radius: var(--radius-btn);
+  font-size: 0.9rem;
+  font-family: var(--font-sans);
+  color: var(--color-ink-900);
+  background: #fff;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  outline: none;
+}
+.input:focus {
+  border-color: var(--color-violet-500);
+  box-shadow: 0 0 0 3px rgba(109, 91, 208, 0.12);
+}
+.input-error { border-color: var(--color-red-500); }
+
+.label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-ink-700);
+  margin-bottom: 0.375rem;
+  letter-spacing: 0.01em;
+}
+
+/* ── Divider ──────────────────────────────────────────────────────────── */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--color-ink-300);
+  font-size: 0.8rem;
+}
+.divider::before, .divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--color-ink-100);
+}
+
+/* ── Match score bar ──────────────────────────────────────────────────── */
+.match-bar-track {
+  height: 6px;
+  background: var(--color-ink-100);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+.match-bar-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--color-teal-500), var(--color-violet-500));
+  transition: width 0.8s cubic-bezier(0.22,1,0.36,1);
+}
+
+/* ── Dot pulse (live indicator) ───────────────────────────────────────── */
+.dot-live {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--color-green-500);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+  display: inline-block;
+}
+
+/* ── Image hover preview ──────────────────────────────────────────────── */
+.img-preview-wrapper { position: relative; overflow: hidden; }
+.img-preview-wrapper img { transition: transform 0.35s ease; display: block; width: 100%; height: 100%; object-fit: cover; }
+.img-preview-wrapper:hover img { transform: scale(1.04); }
