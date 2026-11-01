@@ -1,23 +1,22 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Mail, ArrowLeft, CheckCircle2 } from 'lucide-react';
-import { authApi } from '../services/api';
+import { ArrowLeft, MailCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { authApi, errorMessage } from '../services/api';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
-  const [sent, setSent] = useState(false);
+  const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
+  const submit = async (e) => {
     e.preventDefault();
-    if (!email) return;
     setLoading(true);
     try {
-      await authApi.forgotPassword(email);
-      setSent(true);
-    } catch {
-      toast.error('Something went wrong. Please try again.');
+      const { data } = await authApi.forgotPassword(email);
+      setResult(data);
+    } catch (err) {
+      toast.error(errorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -26,44 +25,32 @@ export default function ForgotPasswordPage() {
   return (
     <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center p-6">
       <div className="w-full max-w-md">
-        <Link to="/login" className="flex items-center gap-2 text-sm text-[var(--color-ink-500)] hover:text-[var(--color-ink-900)] mb-8">
-          <ArrowLeft className="w-4 h-4" /> Back to login
+        <Link to="/login" className="flex items-center gap-1.5 text-sm text-[var(--color-ink-500)] hover:text-[var(--color-ink-900)] mb-6">
+          <ArrowLeft className="w-4 h-4" /> Back to sign in
         </Link>
 
-        {sent ? (
-          <div className="card p-8 text-center border border-[var(--color-ink-100)]">
-            <div className="w-14 h-14 rounded-full bg-[var(--color-teal-100)] flex items-center justify-center mx-auto mb-4 animate-check-pop">
-              <CheckCircle2 className="w-7 h-7 text-[var(--color-teal-600)]" />
-            </div>
-            <h2 className="font-display font-bold text-xl text-[var(--color-ink-900)] mb-2">Check your inbox</h2>
-            <p className="text-sm text-[var(--color-ink-500)]">
-              If <strong>{email}</strong> is registered, you'll receive a reset link shortly.
-            </p>
-            <Link to="/login" className="btn btn-primary mt-6 w-full">Back to login</Link>
+        {result ? (
+          <div className="card border border-[var(--color-ink-100)] p-6">
+            <MailCheck className="w-8 h-8 text-[var(--color-teal-600)] mb-3" />
+            <h1 className="font-display font-bold text-xl text-[var(--color-ink-900)]">Check your email</h1>
+            <p className="text-sm text-[var(--color-ink-500)] mt-1">{result.message}</p>
+            {result.devResetUrl && (
+              <div className="mt-4 rounded-lg bg-[var(--color-amber-50)] border border-[var(--color-amber-100)] p-3 text-sm text-[#92400e]">
+                Email isn't configured on this server, so here is the link directly (development only):
+                <Link to={result.devResetUrl} className="block font-semibold underline mt-1 break-all">Reset your password</Link>
+              </div>
+            )}
           </div>
         ) : (
           <>
-            <h1 className="font-display font-bold text-2xl text-[var(--color-ink-900)] mb-2">Forgot your password?</h1>
-            <p className="text-sm text-[var(--color-ink-500)] mb-8">Enter your email and we'll send a reset link.</p>
-
-            <form onSubmit={handleSubmit} className="card p-8 border border-[var(--color-ink-100)] space-y-5">
+            <h1 className="font-display font-bold text-2xl text-[var(--color-ink-900)]">Reset your password</h1>
+            <p className="text-sm text-[var(--color-ink-500)] mt-1 mb-6">We'll email you a link that works for one hour.</p>
+            <form onSubmit={submit} className="card border border-[var(--color-ink-100)] p-6 space-y-4">
               <div>
-                <label className="label">Email address</label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-ink-300)]" />
-                  <input
-                    type="email"
-                    className="input pl-9"
-                    placeholder="you@university.edu"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                  />
-                </div>
+                <label className="label" htmlFor="email">Email</label>
+                <input id="email" type="email" className="input" placeholder="you@university.edu" value={email} onChange={(e) => setEmail(e.target.value)} required />
               </div>
-              <button type="submit" className="btn btn-primary w-full" disabled={loading || !email}>
-                {loading ? 'Sending...' : 'Send reset link'}
-              </button>
+              <button type="submit" className="btn btn-primary w-full" disabled={loading || !email}>{loading ? 'Sending...' : 'Send reset link'}</button>
             </form>
           </>
         )}

@@ -18,6 +18,11 @@ export default defineConfig({
         target: 'http://localhost:5000',
         changeOrigin: true,
       },
+      // Images stored on local disk when Cloudinary is not configured
+      '/uploads': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      },
       '/socket.io': {
         target: 'http://localhost:5000',
         ws: true,

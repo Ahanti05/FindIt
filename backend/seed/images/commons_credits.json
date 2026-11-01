@@ -1,0 +1,62 @@
+{
+  "keys_a": {
+    "title": "File:Various keys on keyring.jpg",
+    "page": "https://commons.wikimedia.org/wiki/File:Various_keys_on_keyring.jpg",
+    "artist": "Pittigrilli",
+    "license": "CC BY-SA 4.0"
+  },
+  "keys_b": {
+    "title": "File:Car keys with keychain.jpg",
+    "page": "https://commons.wikimedia.org/wiki/File:Car_keys_with_keychain.jpg",
+    "artist": "MediaPhoto.Org",
+    "license": "CC BY 3.0"
+  },
+  "keys_c": {
+    "title": "File:Key ring.jpg",
+    "page": "https://commons.wikimedia.org/wiki/File:Key_ring.jpg",
+    "artist": "Basile Morin",
+    "license": "CC BY-SA 4.0"
+  },
+  "charger_a": {
+    "title": "File:USB Type-C Cable - iPad USB-C Charger (45640822114).jpg",
+    "page": "https://commons.wikimedia.org/wiki/File:USB_Type-C_Cable_-_iPad_USB-C_Charger_(45640822114).jpg",
+    "artist": "Tony Webster from Minneapolis, Minnesota, United States",
+    "license": "CC BY 2.0"
+  },
+  "charger_b": {
+    "title": "File:MagSafe and USB-C Cable Charger for iPhone.jpg",
+    "page": "https://commons.wikimedia.org/wiki/File:MagSafe_and_USB-C_Cable_Charger_for_iPhone.jpg",
+    "artist": "James Tamim",
+    "license": "CC BY-SA 4.0"
+  },
+  "umbrella_a": {
+    "title": "File:Folded Umbrella.jpg",
+    "page": "https://commons.wikimedia.org/wiki/File:Folded_Umbrella.jpg",
+    "artist": "Swethasakthivel",
+    "license": "CC0"
+  },
+  "umbrella_b": {
+    "title": "File:Folding umbrella 01.jpg",
+    "page": "https://commons.wikimedia.org/wiki/File:Folding_umbrella_01.jpg",
+    "artist": "Kritzolina",
+    "license": "CC BY-SA 4.0"
+  },
+  "wallet_b": {
+    "title": "File:Leather bi-fold wallet by Eugene Pik (2021) 04.jpg",
+    "page": "https://commons.wikimedia.org/wiki/File:Leather_bi-fold_wallet_by_Eugene_Pik_(2021)_04.jpg",
+    "artist": "Eugenepik",
+    "license": "CC BY-SA 4.0"
+  },
+  "earbuds_a": {
+    "title": "File:ActiveSound wireless earbuds by Hykker (POJM200483).jpg",
+    "page": "https://commons.wikimedia.org/wiki/File:ActiveSound_wireless_earbuds_by_Hykker_(POJM200483).jpg",
+    "artist": "Warszawska r\u00f3g Szerokiej w Tomaszowie Mazowieckim, w wojew\u00f3dztwie \u0142\u00f3dzkim, PL, EU",
+    "license": "Public domain"
+  },
+  "bottle_b": {
+    "title": "File:Metal water bottle.jpg",
+    "page": "https://commons.wikimedia.org/wiki/File:Metal_water_bottle.jpg",
+    "artist": "Srini297",
+    "license": "CC BY-SA 4.0"
+  }
+}

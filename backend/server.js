@@ -1,4 +1,6 @@
 require('dotenv').config();
+const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -6,91 +8,123 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
-const connectDB = require('./src/config/db');
+const multer = require('multer');
+const mongoose = require('mongoose');
+const { connectDB, startExpiryJob } = require('./src/config/db');
 const { initSocket } = require('./src/services/socketService');
+const { UPLOAD_ROOT } = require('./src/services/storage');
 
-// ─── Routes ──────────────────────────────────────────────────────────────────
-const authRoutes = require('./src/routes/auth');
-const userRoutes = require('./src/routes/users');
-const lostItemRoutes = require('./src/routes/lostItems');
-const foundItemRoutes = require('./src/routes/foundItems');
-const matchRoutes = require('./src/routes/matches');
-const notificationRoutes = require('./src/routes/notifications');
-const recoveryRoutes = require('./src/routes/recovery');
-const adminRoutes = require('./src/routes/admin');
-const aiRoutes = require('./src/routes/ai');
+if (!process.env.JWT_SECRET) {
+  console.error('JWT_SECRET is not set. Copy .env.example to backend/.env first.');
+  process.exit(1);
+}
 
 const app = express();
 const server = http.createServer(app);
+const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
 // ─── Socket.IO ───────────────────────────────────────────────────────────────
 const io = new Server(server, {
-  cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
-    methods: ['GET', 'POST'],
-    credentials: true,
-  },
+  cors: { origin: CLIENT_URL, methods: ['GET', 'POST'], credentials: true },
 });
 initSocket(io);
 
-// ─── Connect DB ──────────────────────────────────────────────────────────────
-connectDB();
-
-// ─── Global Middleware ────────────────────────────────────────────────────────
-app.use(helmet());
-app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
-  credentials: true,
+// ─── Global middleware ────────────────────────────────────────────────────────
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      imgSrc: ["'self'", 'data:', 'blob:', 'https://res.cloudinary.com'],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+      connectSrc: ["'self'", 'ws:', 'wss:'],
+      scriptSrc: ["'self'"],
+    },
+  },
+  crossOriginResourcePolicy: { policy: 'same-site' },
 }));
-app.use(morgan('dev'));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(cors({ origin: CLIENT_URL, credentials: true }));
+if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
-// ─── Rate Limiting ────────────────────────────────────────────────────────────
-const limiter = rateLimit({
+app.use('/api/', rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX) || 100,
+  max: parseInt(process.env.RATE_LIMIT_MAX) || 1000,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many requests, please try again later.' },
-});
-app.use('/api/', limiter);
+}));
 
-// ─── API Routes ───────────────────────────────────────────────────────────────
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/lost-items', lostItemRoutes);
-app.use('/api/found-items', foundItemRoutes);
-app.use('/api/matches', matchRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/recovery', recoveryRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/ai', aiRoutes);
+// Locally stored images (used when Cloudinary is not configured).
+app.use('/uploads', express.static(UPLOAD_ROOT, { maxAge: '7d', fallthrough: false }));
 
-// ─── Health Check ─────────────────────────────────────────────────────────────
+// ─── API routes ───────────────────────────────────────────────────────────────
+const itemRouter = require('./src/routes/items');
+app.use('/api/auth', require('./src/routes/auth'));
+app.use('/api/lost-items', itemRouter('lost'));
+app.use('/api/found-items', itemRouter('found'));
+app.use('/api/matches', require('./src/routes/matches'));
+app.use('/api/notifications', require('./src/routes/notifications'));
+app.use('/api/recovery', require('./src/routes/recovery'));
+app.use('/api/admin', require('./src/routes/admin'));
+app.use('/api/ai', require('./src/routes/ai'));
+app.use('/api', require('./src/routes/public'));
+
 app.get('/api/health', (req, res) => {
-  res.json({ success: true, message: 'FindIt API is running', timestamp: new Date().toISOString() });
+  res.json({
+    success: true,
+    db: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    timestamp: new Date().toISOString(),
+  });
 });
 
-// ─── 404 Handler ──────────────────────────────────────────────────────────────
-app.use((req, res) => {
+app.use('/api', (req, res) => {
   res.status(404).json({ success: false, message: 'Route not found' });
 });
 
-// ─── Global Error Handler ─────────────────────────────────────────────────────
+// ─── Serve the built frontend (npm run build in frontend/) ───────────────────
+const DIST = path.join(__dirname, '..', 'frontend', 'dist');
+if (fs.existsSync(path.join(DIST, 'index.html'))) {
+  app.use(express.static(DIST, { index: false, maxAge: '1h' }));
+  app.get('*', (req, res) => res.sendFile(path.join(DIST, 'index.html')));
+}
+
+// ─── Error handler ────────────────────────────────────────────────────────────
+// eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  const statusCode = err.statusCode || 500;
-  res.status(statusCode).json({
+  let status = err.statusCode || err.status || 500;
+  let message = err.message || 'Internal Server Error';
+
+  if (err instanceof mongoose.Error.ValidationError) {
+    status = 400;
+    message = Object.values(err.errors).map((e) => e.message).join('. ');
+  } else if (err instanceof mongoose.Error.CastError) {
+    status = 400;
+    message = `Invalid ${err.path}`;
+  } else if (err instanceof multer.MulterError) {
+    status = 400;
+    message = err.code === 'LIMIT_FILE_SIZE' ? 'Image must be under 10 MB' : err.message;
+  } else if (err.type === 'entity.parse.failed') {
+    status = 400;
+    message = 'Malformed JSON';
+  }
+
+  if (status >= 500) console.error(err);
+  res.status(status).json({
     success: false,
-    message: err.message || 'Internal Server Error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
+    message: status >= 500 && process.env.NODE_ENV === 'production' ? 'Internal Server Error' : message,
   });
 });
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`🚀 FindIt API running on http://localhost:${PORT}`);
-});
+
+const start = async () => {
+  await connectDB();
+  startExpiryJob();
+  server.listen(PORT, () => console.log(`FindIt API running on http://localhost:${PORT}`));
+};
+
+if (require.main === module) start();
 
 module.exports = { app, server };

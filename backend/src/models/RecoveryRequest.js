@@ -2,62 +2,41 @@ const mongoose = require('mongoose');
 
 const recoveryRequestSchema = new mongoose.Schema(
   {
-    claimant: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
-      index: true,
-    },
-    lostItem: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'LostItem',
-      required: true,
-    },
-    foundItem: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'FoundItem',
-      required: true,
-    },
-    match: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Match',
-    },
-    // ── Evidence ─────────────────────────────────────────────────────────────
+    claimant: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    finder: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    lostItem: { type: mongoose.Schema.Types.ObjectId, ref: 'LostItem', required: true },
+    foundItem: { type: mongoose.Schema.Types.ObjectId, ref: 'FoundItem', required: true },
+    match: { type: mongoose.Schema.Types.ObjectId, ref: 'Match', required: true },
+    // ── Evidence (visible to claimant, finder and admins only) ───────────────
     ownershipStatement: {
       type: String,
       required: [true, 'Ownership statement is required'],
+      trim: true,
+      minlength: [20, 'Please describe the item in at least 20 characters'],
       maxlength: [2000],
     },
-    evidenceImages: [
-      {
-        url: String,
-        publicId: String,
-        description: String,
-      },
-    ],
-    additionalDetails: String,
+    evidenceImages: [{ _id: false, url: String, publicId: String }],
+    additionalDetails: { type: String, maxlength: 1000 },
     // ── Status ────────────────────────────────────────────────────────────────
+    // pending → approved → completed, or pending → denied
     status: {
       type: String,
-      enum: ['pending', 'under_review', 'approved', 'denied', 'completed'],
+      enum: ['pending', 'approved', 'denied', 'completed', 'cancelled'],
       default: 'pending',
       index: true,
     },
-    // ── Admin review ─────────────────────────────────────────────────────────
     reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    reviewNote: String,
+    reviewNote: { type: String, maxlength: 500 },
     reviewedAt: Date,
-    // ── QR Code ───────────────────────────────────────────────────────────────
-    qrCode: {
-      url: String,
-      data: String,
-      generatedAt: Date,
-    },
     // ── Handover ──────────────────────────────────────────────────────────────
+    // The claimant shows this code (or its QR) at handover; the finder or an
+    // admin enters it to confirm the item changed hands.
+    handoverCode: { type: String, select: false },
+    handoverAttempts: { type: Number, default: 0, select: false },
+    handoverLocation: { type: String, maxlength: 200 },
     handoverScheduled: Date,
-    handoverLocation: String,
     handoverCompletedAt: Date,
-    handoverNote: String,
+    handoverConfirmedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },
   { timestamps: true }
 );

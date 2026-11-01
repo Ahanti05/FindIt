@@ -1,125 +1,121 @@
-import { useState } from 'react';
-import { useAuth } from '../context/AuthContext';
-import { authApi } from '../services/api';
-import { User, Mail, BookOpen, Phone, Bell, Lock, CheckCircle2, Loader2 } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Camera, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
+import { authApi, errorMessage } from '../services/api';
+import { Avatar, FieldError } from '../components/ui';
 
 export default function ProfilePage() {
   const { user, updateUser } = useAuth();
+  const fileRef = useRef(null);
   const [form, setForm] = useState({
     name: user?.name || '',
     studentId: user?.studentId || '',
     department: user?.department || '',
     phone: user?.phone || '',
-    notificationPreferences: user?.notificationPreferences || { email: true, inApp: true },
   });
   const [saving, setSaving] = useState(false);
-  const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [uploading, setUploading] = useState(false);
+  const [pw, setPw] = useState({ currentPassword: '', newPassword: '', confirm: '' });
+  const [pwError, setPwError] = useState('');
+  const [pwSaving, setPwSaving] = useState(false);
 
-  const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
-  const setPw = (field) => (e) => setPwForm((f) => ({ ...f, [field]: e.target.value }));
+  const set = (f) => (e) => setForm((s) => ({ ...s, [f]: e.target.value }));
+  const setP = (f) => (e) => { setPw((s) => ({ ...s, [f]: e.target.value })); setPwError(''); };
 
-  const saveProfile = async (e) => {
+  const save = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {
       const { data } = await authApi.updateProfile(form);
       updateUser(data.user);
-      toast.success('Profile updated!');
+      toast.success('Profile saved');
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Update failed');
+      toast.error(errorMessage(err, 'Could not save'));
     } finally {
       setSaving(false);
     }
   };
 
-  return (
-    <div className="max-w-2xl mx-auto px-4 sm:px-6 py-10">
-      <h1 className="font-display font-bold text-2xl text-[var(--color-ink-900)] mb-8">Your Profile</h1>
+  const uploadAvatar = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { toast.error('Image must be under 10 MB'); return; }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('avatar', file);
+      const { data } = await authApi.updateProfile(fd);
+      updateUser(data.user);
+      toast.success('Photo updated');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Upload failed'));
+    } finally {
+      setUploading(false);
+    }
+  };
 
-      {/* Avatar */}
-      <div className="card border border-[var(--color-ink-100)] p-6 flex items-center gap-5 mb-5">
-        <div className="w-16 h-16 rounded-2xl bg-[var(--color-violet-100)] flex items-center justify-center text-2xl font-bold text-[var(--color-violet-600)]">
-          {user?.name?.charAt(0).toUpperCase()}
+  const changePassword = async (e) => {
+    e.preventDefault();
+    if (pw.newPassword.length < 8) { setPwError('New password must be at least 8 characters'); return; }
+    if (pw.newPassword !== pw.confirm) { setPwError('The new passwords do not match'); return; }
+    setPwSaving(true);
+    try {
+      await authApi.changePassword({ currentPassword: pw.currentPassword, newPassword: pw.newPassword });
+      toast.success('Password changed');
+      setPw({ currentPassword: '', newPassword: '', confirm: '' });
+    } catch (err) {
+      setPwError(errorMessage(err, 'Could not change password'));
+    } finally {
+      setPwSaving(false);
+    }
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 space-y-5">
+      <h1 className="font-display font-bold text-2xl text-[var(--color-ink-900)]">Profile</h1>
+
+      <div className="card border border-[var(--color-ink-100)] p-5 flex items-center gap-4">
+        <div className="relative">
+          <Avatar user={user} size="w-16 h-16" text="text-2xl" />
+          <button onClick={() => fileRef.current?.click()} disabled={uploading}
+            className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-white border border-[var(--color-ink-100)] shadow flex items-center justify-center" aria-label="Change photo">
+            {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5 text-[var(--color-ink-600)]" />}
+          </button>
+          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={uploadAvatar} />
         </div>
-        <div>
-          <p className="font-display font-bold text-lg text-[var(--color-ink-900)]">{user?.name}</p>
-          <p className="text-sm text-[var(--color-ink-500)]">{user?.email}</p>
-          <span className="badge badge-violet capitalize mt-1">{user?.role}</span>
+        <div className="min-w-0">
+          <p className="font-display font-bold text-lg text-[var(--color-ink-900)] truncate">{user?.name}</p>
+          <p className="text-sm text-[var(--color-ink-500)] truncate">{user?.email}</p>
+          <span className="badge badge-neutral capitalize mt-1">{user?.role}</span>
         </div>
       </div>
 
-      {/* Profile form */}
-      <form onSubmit={saveProfile} className="card border border-[var(--color-ink-100)] p-6 space-y-5 mb-5">
-        <h2 className="font-bold text-base text-[var(--color-ink-900)]">Personal Information</h2>
-
-        <div>
-          <label className="label">Full name</label>
-          <div className="relative">
-            <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-ink-300)]" />
-            <input className="input pl-9" value={form.name} onChange={set('name')} />
-          </div>
+      <form onSubmit={save} className="card border border-[var(--color-ink-100)] p-5 space-y-4">
+        <h2 className="font-bold text-[var(--color-ink-900)]">Your details</h2>
+        <div><label className="label" htmlFor="name">Full name</label><input id="name" className="input" value={form.name} onChange={set('name')} required maxLength={80} /></div>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div><label className="label" htmlFor="sid">Student / staff ID</label><input id="sid" className="input" value={form.studentId} onChange={set('studentId')} /></div>
+          <div><label className="label" htmlFor="dept">Department</label><input id="dept" className="input" value={form.department} onChange={set('department')} /></div>
         </div>
-
         <div>
-          <label className="label">Student / Staff ID</label>
-          <div className="relative">
-            <BookOpen className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-ink-300)]" />
-            <input className="input pl-9" placeholder="e.g. 20CS001" value={form.studentId} onChange={set('studentId')} />
-          </div>
+          <label className="label" htmlFor="phone">Phone <span className="font-normal text-[var(--color-ink-400)]">(never shown to other users)</span></label>
+          <input id="phone" className="input" value={form.phone} onChange={set('phone')} placeholder="+91" />
         </div>
-
-        <div>
-          <label className="label">Department</label>
-          <input className="input" value={form.department} onChange={set('department')} />
-        </div>
-
-        <div>
-          <label className="label">Phone <span className="text-[var(--color-ink-300)]">(private)</span></label>
-          <div className="relative">
-            <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-ink-300)]" />
-            <input className="input pl-9" placeholder="+91 9000000000" value={form.phone} onChange={set('phone')} />
-          </div>
-        </div>
-
-        <div>
-          <label className="label">Notification preferences</label>
-          <div className="space-y-2">
-            {[
-              { key: 'inApp', label: 'In-app notifications' },
-              { key: 'email', label: 'Email notifications' },
-            ].map(({ key, label }) => (
-              <label key={key} className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="w-4 h-4 accent-[var(--color-violet-600)]"
-                  checked={form.notificationPreferences[key]}
-                  onChange={(e) => setForm((f) => ({
-                    ...f,
-                    notificationPreferences: { ...f.notificationPreferences, [key]: e.target.checked }
-                  }))}
-                />
-                <span className="text-sm font-medium text-[var(--color-ink-700)]">{label}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-
-        <button type="submit" className="btn btn-primary gap-2" disabled={saving}>
-          {saving ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</> : <><CheckCircle2 className="w-4 h-4" /> Save changes</>}
-        </button>
+        <button type="submit" disabled={saving} className="btn btn-primary">{saving ? 'Saving...' : 'Save details'}</button>
       </form>
 
-      {/* Password section – UI only, backend email-flow required */}
-      <div className="card border border-[var(--color-ink-100)] p-6">
-        <h2 className="font-bold text-base text-[var(--color-ink-900)] mb-4 flex items-center gap-2">
-          <Lock className="w-4 h-4" /> Change Password
-        </h2>
-        <p className="text-sm text-[var(--color-ink-500)] mb-4">
-          To change your password, use the "Forgot password" flow. An email reset link will be sent to your registered address.
-        </p>
-        <a href="/forgot-password" className="btn btn-ghost btn-sm">Send reset link →</a>
-      </div>
+      <form onSubmit={changePassword} className="card border border-[var(--color-ink-100)] p-5 space-y-4">
+        <h2 className="font-bold text-[var(--color-ink-900)]">Change password</h2>
+        <div><label className="label" htmlFor="cur">Current password</label><input id="cur" type="password" className="input" value={pw.currentPassword} onChange={setP('currentPassword')} autoComplete="current-password" required /></div>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div><label className="label" htmlFor="np">New password</label><input id="np" type="password" className="input" value={pw.newPassword} onChange={setP('newPassword')} autoComplete="new-password" required /></div>
+          <div><label className="label" htmlFor="cp">Repeat new password</label><input id="cp" type="password" className="input" value={pw.confirm} onChange={setP('confirm')} autoComplete="new-password" required /></div>
+        </div>
+        <FieldError>{pwError}</FieldError>
+        <button type="submit" disabled={pwSaving} className="btn btn-ghost">{pwSaving ? 'Updating...' : 'Update password'}</button>
+      </form>
     </div>
   );
 }

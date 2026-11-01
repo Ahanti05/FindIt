@@ -1,130 +1,83 @@
 """
-Cosine similarity matcher.
-Queries MongoDB for item embeddings, computes cosine similarity,
-then applies multi-signal ranking (visual + category + location + date).
+Multi-signal ranking of lost/found candidates.
+
+The backend sends the query item and its candidates (it owns the database);
+this module only scores them.
+
+  combined = 0.60 * visual + 0.20 * category + 0.10 * location + 0.10 * date
+
+visual   – CLIP cosine similarity, rescaled from [COS_FLOOR, COS_CEIL] to [0, 1].
+           Raw CLIP image-image cosine is ~0.59 on average even for unrelated
+           photos, so the raw value would overstate similarity. Measured with
+           calibrate.py on the 22 seed photos:
+             same object, different photo   0.889 – 0.978
+             same category, other object    0.640 – 0.856
+             different category             0.307 – 0.770
+category – 1 if both reports use the same category, else 0.
+location – 1 same building, 0 different building, 0.5 if either is unknown.
+date     – Gaussian decay on the gap in days (sigma 5 days). A found date more
+           than a day *before* the lost date is impossible, so it scores 0.
 """
 
-import logging
-from datetime import datetime, timedelta, timezone
-from typing import Any
+import math
+import os
+from datetime import datetime
 
 import numpy as np
-from bson import ObjectId
-from pymongo import MongoClient
 
-logger = logging.getLogger("findit-ai.matcher")
-
-CATEGORY_WEIGHT = 0.15
-LOCATION_WEIGHT = 0.10
-DATE_WEIGHT = 0.05
-VISUAL_WEIGHT = 0.70
+WEIGHTS = {"visual": 0.60, "category": 0.20, "location": 0.10, "date": 0.10}
+COS_FLOOR = float(os.getenv("VISUAL_COS_FLOOR", "0.65"))
+COS_CEIL = float(os.getenv("VISUAL_COS_CEIL", "0.95"))
+DATE_SIGMA_DAYS = 5.0
 
 
-class EmbeddingMatcher:
-    def __init__(self, mongo_uri: str):
-        self.client = MongoClient(mongo_uri)
-        self.db = self.client.get_default_database()
-        logger.info("EmbeddingMatcher connected to MongoDB.")
+def visual_score(cos: float) -> float:
+    return float(min(1.0, max(0.0, (cos - COS_FLOOR) / (COS_CEIL - COS_FLOOR))))
 
-    async def find_matches(
-        self,
-        item_id: str,
-        item_type: str,
-        top_k: int = 10,
-    ) -> list[dict[str, Any]]:
-        """
-        Given a lost/found item, find best matching items from the opposite collection.
-        """
-        # Determine source and target collections
-        if item_type == "lost":
-            src_col = self.db["lostitems"]
-            tgt_col = self.db["founditems"]
-            tgt_type = "found"
-            date_field = "foundDate"
-            location_field = "foundLocation"
+
+def location_score(a: str | None, b: str | None) -> float:
+    if not a or not b:
+        return 0.5
+    return 1.0 if a.strip().lower() == b.strip().lower() else 0.0
+
+
+def date_score(lost: datetime | None, found: datetime | None) -> float:
+    if not lost or not found:
+        return 0.5
+    gap_days = (found - lost).total_seconds() / 86400
+    if gap_days < -1:
+        return 0.0
+    return math.exp(-0.5 * (max(gap_days, 0.0) / DATE_SIGMA_DAYS) ** 2)
+
+
+def rank(query: dict, candidates: list[dict], query_type: str, top_k: int) -> list[dict]:
+    q_vec = np.asarray(query["embedding"], dtype=np.float32)
+    results = []
+    for cand in candidates:
+        c_vec = np.asarray(cand["embedding"], dtype=np.float32)
+        if c_vec.shape != q_vec.shape:
+            continue  # embedding from a different model – skip rather than compare garbage
+        cos = float(np.dot(q_vec, c_vec))
+
+        if query_type == "lost":
+            lost_date, found_date = query.get("date"), cand.get("date")
         else:
-            src_col = self.db["founditems"]
-            tgt_col = self.db["lostitems"]
-            tgt_type = "lost"
-            date_field = "lostDate"
-            location_field = "lastSeenLocation"
+            lost_date, found_date = cand.get("date"), query.get("date")
 
-        # Fetch source item
-        source = src_col.find_one({"_id": ObjectId(item_id)})
-        if not source:
-            logger.warning(f"Source item {item_id} not found.")
-            return []
+        scores = {
+            "visual": visual_score(cos),
+            "category": 1.0 if query.get("category") == cand.get("category") else 0.0,
+            "location": location_score(query.get("building"), cand.get("building")),
+            "date": date_score(lost_date, found_date),
+        }
+        combined = sum(WEIGHTS[k] * v for k, v in scores.items())
+        results.append({
+            "id": cand["id"],
+            "cosine": round(cos, 4),
+            "similarity_score": round(scores["visual"], 4),
+            "combined_score": round(combined, 4),
+            "score_breakdown": {k: round(v, 4) for k, v in scores.items()},
+        })
 
-        source_vec = source.get("embedding", {}).get("vector")
-        if not source_vec:
-            logger.warning(f"No embedding for item {item_id}.")
-            return []
-
-        source_vec = np.array(source_vec, dtype=np.float32)
-        source_category = source.get("category", "")
-        source_building = (source.get("lastSeenLocation") or source.get("foundLocation") or {}).get("building", "")
-        source_date = source.get("lostDate") or source.get("foundDate")
-
-        # Fetch candidate items (same status, has embedding)
-        candidates = list(
-            tgt_col.find(
-                {"status": "active", "embedding.vector": {"$exists": True}},
-                {"_id": 1, "category": 1, date_field: 1, location_field: 1, "embedding.vector": 1},
-            ).limit(500)
-        )
-
-        results = []
-        for candidate in candidates:
-            cand_vec = candidate.get("embedding", {}).get("vector")
-            if not cand_vec:
-                continue
-
-            cand_vec = np.array(cand_vec, dtype=np.float32)
-
-            # Visual similarity (cosine – vecs are already L2 normalized)
-            visual_score = float(np.dot(source_vec, cand_vec))
-            visual_score = max(0.0, min(1.0, visual_score))
-
-            # Category match
-            cand_category = candidate.get("category", "")
-            category_score = 1.0 if cand_category == source_category else 0.0
-
-            # Location proximity (same building = 1.0, else 0)
-            cand_loc = candidate.get(location_field) or {}
-            cand_building = cand_loc.get("building", "")
-            location_score = 1.0 if (source_building and cand_building and
-                                      source_building.lower() == cand_building.lower()) else 0.0
-
-            # Date proximity (within 3 days = full score, 7 days = half)
-            date_score = 0.0
-            cand_date = candidate.get(date_field)
-            if source_date and cand_date:
-                diff = abs((source_date - cand_date).days)
-                if diff <= 3:
-                    date_score = 1.0
-                elif diff <= 7:
-                    date_score = 0.5
-
-            combined = (
-                VISUAL_WEIGHT * visual_score +
-                CATEGORY_WEIGHT * category_score +
-                LOCATION_WEIGHT * location_score +
-                DATE_WEIGHT * date_score
-            )
-
-            results.append({
-                "item_id": str(candidate["_id"]),
-                "item_type": tgt_type,
-                "similarity_score": round(visual_score, 4),
-                "combined_score": round(combined, 4),
-                "score_breakdown": {
-                    "visual": round(visual_score, 4),
-                    "category": round(category_score, 4),
-                    "location": round(location_score, 4),
-                    "date_proximity": round(date_score, 4),
-                },
-            })
-
-        # Sort by combined score and return top-k
-        results.sort(key=lambda r: r["combined_score"], reverse=True)
-        return results[:top_k]
+    results.sort(key=lambda r: r["combined_score"], reverse=True)
+    return results[:top_k]

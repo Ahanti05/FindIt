@@ -18,7 +18,10 @@ export const AuthProvider = ({ children }) => {
     if (!token) { setLoading(false); return; }
 
     authApi.getMe()
-      .then(({ data }) => setUser(data.user))
+      .then(({ data }) => {
+        localStorage.setItem('findit_user', JSON.stringify(data.user));
+        setUser(data.user);
+      })
       .catch(() => {
         localStorage.removeItem('findit_token');
         localStorage.removeItem('findit_user');
@@ -50,6 +53,13 @@ export const AuthProvider = ({ children }) => {
     return data.user;
   }, []);
 
+  // Used after a password reset, which signs the user in.
+  const setSession = useCallback((token, sessionUser) => {
+    localStorage.setItem('findit_token', token);
+    localStorage.setItem('findit_user', JSON.stringify(sessionUser));
+    setUser(sessionUser);
+  }, []);
+
   const logout = useCallback(() => {
     localStorage.removeItem('findit_token');
     localStorage.removeItem('findit_user');
@@ -65,7 +75,7 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, updateUser }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, updateUser, setSession }}>
       {children}
     </AuthContext.Provider>
   );

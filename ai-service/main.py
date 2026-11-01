@@ -1,94 +1,105 @@
 """
 FindIt AI Service – FastAPI application
-Provides:
-  POST /detect   – YOLOv8 object detection on an image URL
-  POST /embed    – ResNet50 visual embedding extraction
-  POST /match    – Cosine similarity matching against DB embeddings
-  GET  /health   – Health check
+
+  POST /analyze  – multipart image → YOLO detections, CLIP category guesses,
+                   512-d CLIP embedding (of the detected object when one is found)
+  POST /match    – rank candidate items against a query item
+  GET  /health   – model status
+
+The service never fetches URLs and never touches the database: the backend
+uploads image bytes and sends candidate embeddings. That keeps it free of
+SSRF risk and lets it run on a separate GPU box.
 """
 
-import os
 import io
 import logging
+import os
 from contextlib import asynccontextmanager
-from typing import Optional
+from datetime import datetime
+from typing import Literal, Optional
 
-import httpx
-import numpy as np
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from dotenv import load_dotenv
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
+from PIL import Image, ImageOps, UnidentifiedImageError
+from pydantic import BaseModel, Field
 
-from detector import YOLODetector
+from detector import YOLODetector, pick_crop
 from embedder import ImageEmbedder
-from matcher import EmbeddingMatcher
+from matcher import WEIGHTS, rank
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("findit-ai")
 
-# ─── Global model instances ───────────────────────────────────────────────────
+MAX_UPLOAD_BYTES = 15 * 1024 * 1024
+MIN_CATEGORY_CONFIDENCE = 0.35
+
 detector: Optional[YOLODetector] = None
 embedder: Optional[ImageEmbedder] = None
-matcher: Optional[EmbeddingMatcher] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load models on startup, release on shutdown."""
-    global detector, embedder, matcher
-    logger.info("Loading YOLO model...")
+    global detector, embedder
     detector = YOLODetector(model_name=os.getenv("YOLO_MODEL", "yolov8n.pt"))
-    logger.info("Loading embedding model...")
-    embedder = ImageEmbedder()
-    logger.info("Initializing matcher...")
-    matcher = EmbeddingMatcher(
-        mongo_uri=os.getenv("MONGODB_URI", "mongodb://localhost:27017/findit")
-    )
-    logger.info("✅ AI Service ready.")
+    embedder = ImageEmbedder(model_name=os.getenv("CLIP_MODEL", "openai/clip-vit-base-patch32"))
+    logger.info("AI Service ready.")
     yield
-    logger.info("Shutting down AI Service...")
 
 
 app = FastAPI(
     title="FindIt AI Service",
-    description="YOLO-powered object detection and visual similarity matching",
-    version="1.0.0",
+    description="YOLOv8 detection + CLIP embeddings and category recognition",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
+# ─── Schemas ──────────────────────────────────────────────────────────────────
 
-# ─── Request / Response schemas ───────────────────────────────────────────────
+class MatchItem(BaseModel):
+    id: str = ""
+    embedding: list[float]
+    category: Optional[str] = None
+    building: Optional[str] = None
+    date: Optional[datetime] = None
 
-class DetectRequest(BaseModel):
-    image_url: str
-    confidence_threshold: float = 0.3
-
-class EmbedRequest(BaseModel):
-    image_url: str
 
 class MatchRequest(BaseModel):
-    item_id: str
-    item_type: str  # "lost" | "found"
-    top_k: int = 10
+    query_type: Literal["lost", "found"]
+    query: MatchItem
+    candidates: list[MatchItem] = Field(default_factory=list)
+    top_k: int = Field(default=10, ge=1, le=100)
 
 
-# ─── Utility: fetch image bytes from URL ─────────────────────────────────────
+# ─── Inference ────────────────────────────────────────────────────────────────
 
-async def fetch_image_bytes(url: str) -> bytes:
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        response = await client.get(url)
-        if response.status_code != 200:
-            raise HTTPException(status_code=400, detail=f"Failed to fetch image: {url}")
-        return response.content
+def _run_analysis(image: Image.Image) -> dict:
+    detection = detector.detect(image)
+    embedding, guesses = embedder.analyze(image)
+
+    # Crop to the detected object only when YOLO and CLIP agree on what it is.
+    # COCO labels are often wrong for our items (a wallet detected as an
+    # "umbrella"), and cropping one photo of a pair but not the other hurts
+    # similarity more than background clutter does.
+    top = guesses[0]
+    crop = pick_crop(detection["objects"], image.size, top["category"])
+    if crop:
+        embedding, _ = embedder.analyze(image.crop(tuple(crop)))
+
+    suggested = top["category"] if top["confidence"] >= MIN_CATEGORY_CONFIDENCE else "Other"
+    return {
+        "detected_objects": detection["objects"],
+        "primary_label": detection["primary_label"],
+        "annotated_image": detection["annotated_image"],
+        "crop_box": crop,
+        "suggested_category": suggested,
+        "category_guesses": guesses,
+        "embedding": embedding.tolist(),
+        "model": embedder.model_name,
+        "dimensions": int(embedding.shape[0]),
+    }
 
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
@@ -96,69 +107,40 @@ async def fetch_image_bytes(url: str) -> bytes:
 @app.get("/health")
 async def health():
     return {
-        "status": "ok",
+        "status": "ok" if detector and embedder else "loading",
         "models": {
-            "yolo": detector.model_name if detector else None,
+            "detector": detector.model_name if detector else None,
             "embedder": embedder.model_name if embedder else None,
+            "device": str(embedder.device) if embedder else None,
         },
+        "weights": WEIGHTS,
     }
 
 
-@app.post("/detect")
-async def detect(req: DetectRequest):
-    """
-    Run YOLO object detection on an image URL.
-    Returns detected objects with bounding boxes and an annotated image (base64).
-    """
+@app.post("/analyze")
+async def analyze(file: UploadFile = File(...)):
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Image too large")
     try:
-        image_bytes = await fetch_image_bytes(req.image_url)
-        result = detector.detect(image_bytes, confidence_threshold=req.confidence_threshold)
-        return {
-            "detected_objects": result["objects"],
-            "primary_label": result["primary_label"],
-            "annotated_image_url": result.get("annotated_image_b64"),
-            "object_count": len(result["objects"]),
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Detection error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        image = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
+    except (UnidentifiedImageError, OSError):
+        raise HTTPException(status_code=400, detail="Not a readable image")
 
-
-@app.post("/embed")
-async def embed(req: EmbedRequest):
-    """
-    Extract a visual embedding vector from an image URL.
-    """
     try:
-        image_bytes = await fetch_image_bytes(req.image_url)
-        vector = embedder.embed(image_bytes)
-        return {
-            "embedding": vector.tolist(),
-            "model": embedder.model_name,
-            "dimensions": len(vector),
-        }
-    except HTTPException:
-        raise
+        return await run_in_threadpool(_run_analysis, image)
     except Exception as e:
-        logger.error(f"Embedding error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Analysis failed")
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
 
 
 @app.post("/match")
 async def match(req: MatchRequest):
-    """
-    Compare the embedding of the given item against all relevant items in the DB.
-    Returns ranked matches with similarity scores.
-    """
-    try:
-        matches = await matcher.find_matches(
-            item_id=req.item_id,
-            item_type=req.item_type,
-            top_k=req.top_k,
-        )
-        return {"matches": matches, "count": len(matches)}
-    except Exception as e:
-        logger.error(f"Matching error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    results = await run_in_threadpool(
+        rank,
+        req.query.model_dump(),
+        [c.model_dump() for c in req.candidates],
+        req.query_type,
+        req.top_k,
+    )
+    return {"matches": results, "count": len(results)}

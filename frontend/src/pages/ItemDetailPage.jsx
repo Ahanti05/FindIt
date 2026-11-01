@@ -1,321 +1,465 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import {
-  MapPin, Calendar, Tag, Eye, Zap, ArrowLeft, User,
-  AlertCircle, CheckCircle2, Share2, Flag, Loader2
+  MapPin, Calendar, Eye, ArrowLeft, Sparkles, Loader2, Share2, Flag, Pencil, Archive,
+  RotateCcw, Trash2, CheckCircle2, AlertTriangle, Package, Gift, Clock, Hand,
 } from 'lucide-react';
-import { lostApi, foundApi, matchApi } from '../services/api';
-import { useAuth } from '../context/AuthContext';
 import { formatDistanceToNow, format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { clsx } from 'clsx';
+import { itemsApi, matchApi, errorMessage } from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { useMeta, HANDOVER_LABELS } from '../context/MetaContext';
+import { Avatar, CategoryIcon, Modal, ScoreBar, StatusBadge, Thumb, pct } from '../components/ui';
+
+const PROCESSING = ['pending', 'processing'];
 
 export default function ItemDetailPage({ type }) {
   const { id } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const api = itemsApi(type);
   const [item, setItem] = useState(null);
-  const [matches, setMatches] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [matchLoading, setMatchLoading] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
+  const [matches, setMatches] = useState(null);
+  const [showAnnotated, setShowAnnotated] = useState(false);
+  const [modal, setModal] = useState(null); // 'edit' | 'delete' | 'flag'
+  const [busy, setBusy] = useState(false);
 
-  const api = type === 'lost' ? lostApi : foundApi;
+  const load = useCallback(() => api.getById(id)
+    .then(({ data }) => { setItem(data.item); setIsOwner(data.isOwner); return data.item; })
+    .catch((err) => {
+      if (err.response?.status === 404) navigate('/404', { replace: true });
+      else toast.error(errorMessage(err, 'Could not load this report'));
+    }), [api, id, navigate]);
+
+  useEffect(() => { setItem(null); setMatches(null); load(); }, [load]);
+
+  const aiStatus = item?.aiDetection?.processingStatus;
+  const aiRunning = Boolean(item?.image?.url) && PROCESSING.includes(aiStatus);
+
+  // Poll while the AI is still working on this report.
+  useEffect(() => {
+    if (!aiRunning) return undefined;
+    const t = setInterval(load, 2500);
+    return () => clearInterval(t);
+  }, [aiRunning, load]);
 
   useEffect(() => {
-    api.getById(id)
-      .then(({ data }) => setItem(data.item))
-      .catch(() => navigate('/404'))
-      .finally(() => setLoading(false));
-  }, [id, type]);
+    if (!isOwner || aiRunning) return;
+    matchApi.forItem(type, id).then(({ data }) => setMatches(data.matches)).catch(() => setMatches([]));
+  }, [isOwner, aiRunning, type, id]);
 
-  // Load AI matches for lost items (owner only)
-  useEffect(() => {
-    if (!item || type !== 'lost' || !user) return;
-    if (item.reporter?._id !== user.id && item.reporter?.id !== user.id) return;
-    setMatchLoading(true);
-    matchApi.getForLostItem(id)
-      .then(({ data }) => setMatches(data.matches || []))
-      .catch(() => {})
-      .finally(() => setMatchLoading(false));
-  }, [item, type, user]);
+  const updateStatus = async (status, message) => {
+    setBusy(true);
+    try {
+      const { data } = await api.update(id, { status });
+      setItem((i) => ({ ...i, status: data.item.status }));
+      toast.success(message);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
-  const isOwner = user && (item?.reporter?._id === user.id || item?.reporter?.id === user.id);
+  const reprocess = async () => {
+    try {
+      await api.reprocess(id);
+      setItem((i) => ({ ...i, aiDetection: { ...i.aiDetection, processingStatus: 'processing', error: null } }));
+      toast.success('Running the AI again');
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
 
-  if (loading) {
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await api.delete(id);
+      toast.success('Report deleted');
+      navigate('/dashboard');
+    } catch (err) {
+      toast.error(errorMessage(err));
+      setBusy(false);
+      setModal(null);
+    }
+  };
+
+  if (!item) {
     return (
-      <div className="max-w-4xl mx-auto px-6 py-12 space-y-4">
-        <div className="skeleton h-4 w-24 mb-6" />
-        <div className="skeleton h-72 w-full rounded-2xl" />
-        <div className="skeleton h-6 w-1/2" />
-        <div className="skeleton h-4 w-full" />
-        <div className="skeleton h-4 w-3/4" />
+      <div className="max-w-5xl mx-auto px-6 py-10 grid lg:grid-cols-[1fr_340px] gap-6">
+        <div className="space-y-4"><div className="skeleton h-80 w-full rounded-xl" /><div className="skeleton h-6 w-1/2" /><div className="skeleton h-4 w-full" /></div>
+        <div className="skeleton h-64 rounded-xl" />
       </div>
     );
   }
 
-  if (!item) return null;
-
   const location = type === 'lost' ? item.lastSeenLocation : item.foundLocation;
   const date = type === 'lost' ? item.lostDate : item.foundDate;
-  const detection = item.aiDetection;
+  const ai = item.aiDetection || {};
+  const imageSrc = showAnnotated && ai.annotatedImageUrl ? ai.annotatedImageUrl : item.image?.url;
+  const doneStatus = type === 'lost' ? 'recovered' : 'returned';
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10">
-      {/* Back */}
-      <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-sm text-[var(--color-ink-500)] hover:text-[var(--color-ink-900)] mb-6 group">
-        <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" /> Back
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+      <button onClick={() => navigate(-1)} className="flex items-center gap-1.5 text-sm text-[var(--color-ink-500)] hover:text-[var(--color-ink-900)] mb-5">
+        <ArrowLeft className="w-4 h-4" /> Back
       </button>
 
-      <div className="grid lg:grid-cols-[1fr_340px] gap-6">
-        {/* Main column */}
-        <div className="space-y-5">
-          {/* Image */}
+      <div className="grid lg:grid-cols-[1fr_340px] gap-6 items-start">
+        {/* ── Main ─────────────────────────────────────────────────────── */}
+        <div className="space-y-5 min-w-0">
           <div className="card border border-[var(--color-ink-100)] overflow-hidden">
-            {detection?.annotatedImageUrl || item.image?.url ? (
-              <div className="relative">
-                <img
-                  src={detection?.annotatedImageUrl || item.image?.url}
-                  alt={item.title}
-                  className="w-full max-h-80 object-contain bg-[var(--color-canvas-dark)]"
-                />
-                {detection?.annotatedImageUrl && (
-                  <div className="absolute top-3 left-3">
-                    <span className="badge badge-violet gap-1.5 text-xs py-1">
-                      <Zap className="w-3 h-3" /> AI Annotated
-                    </span>
+            {item.image?.url ? (
+              <div className="relative bg-[var(--color-canvas-dark)]">
+                <img src={imageSrc} alt={item.title} className="w-full max-h-[420px] object-contain" />
+                {ai.annotatedImageUrl && (
+                  <div className="absolute bottom-3 left-3 flex bg-white/95 rounded-lg p-0.5 shadow-sm text-xs font-semibold">
+                    {[['Photo', false], ['AI detections', true]].map(([label, val]) => (
+                      <button key={label} onClick={() => setShowAnnotated(val)}
+                        className={clsx('px-3 py-1.5 rounded-md', showAnnotated === val ? 'bg-[var(--color-ink-900)] text-white' : 'text-[var(--color-ink-600)]')}>
+                        {label}
+                      </button>
+                    ))}
                   </div>
                 )}
-                <div className="absolute top-3 right-3">
-                  <span className={clsx('badge text-xs py-1', type === 'lost' ? 'badge-red' : 'badge-teal')}>
-                    {type === 'lost' ? 'Lost' : 'Found'}
-                  </span>
-                </div>
               </div>
             ) : (
-              <div className="h-56 bg-[var(--color-canvas-dark)] flex items-center justify-center">
-                <div className="text-center">
-                  <span className="text-5xl">📦</span>
-                  <p className="text-sm text-[var(--color-ink-300)] mt-2">No photo provided</p>
-                </div>
+              <div className="h-56 bg-[var(--color-canvas-dark)] flex flex-col items-center justify-center text-[var(--color-ink-300)]">
+                <CategoryIcon category={item.category} className="w-12 h-12" />
+                <p className="text-sm mt-2">No photo was added</p>
               </div>
             )}
           </div>
 
-          {/* Item info */}
           <div className="card border border-[var(--color-ink-100)] p-6">
-            <div className="flex items-start justify-between gap-4 mb-4">
-              <div>
-                <h1 className="font-display font-bold text-xl text-[var(--color-ink-900)]">{item.title}</h1>
-                <div className="flex items-center gap-2 mt-2">
-                  <span className="badge badge-neutral">{item.category}</span>
-                  {item.rewardOffered && <span className="badge badge-amber">🎁 Reward offered</span>}
-                  <span className="flex items-center gap-1 text-[11px] text-[var(--color-ink-300)]">
-                    <Eye className="w-3 h-3" /> {item.views} views
-                  </span>
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <span className={clsx('badge', type === 'lost' ? 'badge-red' : 'badge-teal')}>{type === 'lost' ? 'Lost' : 'Found'}</span>
+                  <StatusBadge status={item.status} />
+                  {item.rewardOffered && <span className="badge badge-amber"><Gift className="w-3 h-3" /> Reward</span>}
                 </div>
+                <h1 className="font-display font-bold text-2xl text-[var(--color-ink-900)] break-words">{item.title}</h1>
+                <p className="text-sm text-[var(--color-ink-500)] flex items-center gap-1.5 mt-1">
+                  <CategoryIcon category={item.category} className="w-4 h-4" /> {item.category}
+                  <span className="text-[var(--color-ink-300)]">·</span>
+                  <Eye className="w-3.5 h-3.5" /> {item.views} views
+                </p>
               </div>
               <button
-                onClick={() => { navigator.clipboard.writeText(window.location.href); toast.success('Link copied!'); }}
-                className="btn btn-ghost btn-sm btn-icon shrink-0"
-                title="Share"
+                onClick={() => { navigator.clipboard?.writeText(window.location.href); toast.success('Link copied'); }}
+                className="btn btn-ghost btn-sm shrink-0" title="Copy link"
               >
-                <Share2 className="w-4 h-4" />
+                <Share2 className="w-4 h-4" /> Share
               </button>
             </div>
 
-            {item.description && (
-              <p className="text-sm text-[var(--color-ink-600)] leading-relaxed mb-5">{item.description}</p>
-            )}
+            {item.description && <p className="text-sm text-[var(--color-ink-700)] leading-relaxed mt-4 whitespace-pre-line">{item.description}</p>}
 
-            <div className="space-y-3 border-t border-[var(--color-ink-100)] pt-4">
+            <dl className="mt-5 pt-5 border-t border-[var(--color-ink-100)] grid sm:grid-cols-2 gap-4">
               {location?.building && (
-                <InfoRow icon={MapPin} label={type === 'lost' ? 'Last seen at' : 'Found at'}>
-                  {location.building}{location.area ? ` · ${location.area}` : ''}
-                </InfoRow>
+                <Info icon={MapPin} label={type === 'lost' ? 'Last seen' : 'Found at'}>
+                  {location.building}{location.area ? ` – ${location.area}` : ''}
+                </Info>
               )}
               {date && (
-                <InfoRow icon={Calendar} label={type === 'lost' ? 'Date lost' : 'Date found'}>
-                  {format(new Date(date), 'PPP')} ({formatDistanceToNow(new Date(date), { addSuffix: true })})
-                </InfoRow>
+                <Info icon={Calendar} label={type === 'lost' ? 'Date lost' : 'Date found'}>
+                  {format(new Date(date), 'd MMM yyyy')}{(item.lostTimeApprox || item.foundTime) ? `, ${item.lostTimeApprox || item.foundTime}` : ''}
+                </Info>
               )}
-              {type === 'lost' && item.lostTimeApprox && (
-                <InfoRow icon={Calendar} label="Approximate time">{item.lostTimeApprox}</InfoRow>
-              )}
-              {item.colors?.length > 0 && (
-                <InfoRow icon={Tag} label="Colors">{item.colors.join(', ')}</InfoRow>
-              )}
-              {item.identifyingCharacteristics && (
-                <InfoRow icon={AlertCircle} label="Identifying features">{item.identifyingCharacteristics}</InfoRow>
-              )}
-              {type === 'lost' && item.rewardDescription && (
-                <InfoRow icon={CheckCircle2} label="Reward">{item.rewardDescription}</InfoRow>
-              )}
-              {type === 'found' && item.handoverPreference && (
-                <InfoRow icon={CheckCircle2} label="Handover via">
-                  {item.handoverPreference.replace(/-/g, ' ')}
-                </InfoRow>
-              )}
-            </div>
+              {item.colors?.length > 0 && <Info icon={Package} label="Colours">{item.colors.join(', ')}</Info>}
+              {type === 'lost' && item.identifyingCharacteristics && <Info icon={AlertTriangle} label="Identifying marks">{item.identifyingCharacteristics}</Info>}
+              {type === 'lost' && item.rewardOffered && <Info icon={Gift} label="Reward">{item.rewardDescription || 'Offered'}</Info>}
+              {type === 'found' && item.currentLocation && <Info icon={Package} label="Item is now">{item.currentLocation}</Info>}
+              {type === 'found' && <Info icon={Hand} label="Collection">{HANDOVER_LABELS[item.handoverPreference]}</Info>}
+            </dl>
           </div>
 
-          {/* AI Detection results */}
-          {detection && detection.processingStatus === 'done' && detection.detectedObjects?.length > 0 && (
-            <div className="card border border-[var(--color-violet-100)] bg-[var(--color-violet-50)] p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <Zap className="w-4 h-4 text-[var(--color-violet-600)]" />
-                <span className="font-bold text-sm text-[var(--color-violet-600)]">AI Detection Results</span>
-                <span className="badge badge-violet text-[10px]">YOLOv8</span>
+          {/* AI panel */}
+          {item.image?.url && (
+            <div className="card border border-[var(--color-ink-100)] p-5">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <p className="font-bold text-sm text-[var(--color-ink-900)] flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-[var(--color-violet-600)]" /> AI analysis
+                </p>
+                {isOwner && ['done', 'failed'].includes(aiStatus) && (
+                  <button onClick={reprocess} className="btn btn-ghost btn-sm"><RotateCcw className="w-3.5 h-3.5" /> Run again</button>
+                )}
               </div>
-              <div className="grid sm:grid-cols-2 gap-3">
-                {detection.detectedObjects.map((obj, i) => (
-                  <div key={i} className="bg-white rounded-lg p-3 border border-[var(--color-violet-100)]">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-semibold text-[var(--color-ink-900)] capitalize">{obj.label}</span>
-                      <span className="badge badge-violet text-[10px]">{Math.round(obj.confidence * 100)}%</span>
-                    </div>
-                    <div className="match-bar-track">
-                      <div className="match-bar-fill" style={{ width: `${obj.confidence * 100}%` }} />
+
+              {aiRunning && (
+                <p className="text-sm text-[var(--color-ink-500)] flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-[var(--color-violet-600)]" />
+                  Detecting the object, computing its visual fingerprint and searching for matches...
+                </p>
+              )}
+              {aiStatus === 'failed' && (
+                <p className="text-sm text-[#92400e] bg-[var(--color-amber-50)] rounded-lg p-3">
+                  Analysis did not finish{ai.error ? `: ${ai.error}` : ''}. {isOwner ? 'Try "Run again" in a moment.' : ''}
+                </p>
+              )}
+              {aiStatus === 'done' && (
+                <div className="grid sm:grid-cols-2 gap-5">
+                  <div>
+                    <p className="text-xs font-bold text-[var(--color-ink-500)] uppercase tracking-wide mb-2">Recognised as</p>
+                    <div className="space-y-2">
+                      {(ai.categoryGuesses || []).map((g) => (
+                        <div key={g.category}>
+                          <div className="flex justify-between text-sm mb-1">
+                            <span className={clsx('font-semibold', g.category === item.category ? 'text-[var(--color-ink-900)]' : 'text-[var(--color-ink-500)]')}>{g.category}</span>
+                            <span className="text-[var(--color-ink-500)]">{pct(g.confidence)}</span>
+                          </div>
+                          <ScoreBar value={g.confidence} />
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ))}
-              </div>
-              <p className="text-[11px] text-[var(--color-ink-400)] mt-3">
-                * AI detection identifies visible objects. Results may not be 100% accurate for all item types.
-              </p>
-            </div>
-          )}
-
-          {detection?.processingStatus === 'processing' && (
-            <div className="card border border-[var(--color-violet-100)] p-5 flex items-center gap-3">
-              <Loader2 className="w-5 h-5 text-[var(--color-violet-600)] animate-spin" />
-              <div>
-                <p className="text-sm font-semibold text-[var(--color-violet-600)]">AI processing in progress...</p>
-                <p className="text-xs text-[var(--color-ink-500)]">Object detection and matching will complete shortly.</p>
-              </div>
+                  <div>
+                    <p className="text-xs font-bold text-[var(--color-ink-500)] uppercase tracking-wide mb-2">Objects detected (YOLOv8)</p>
+                    {ai.detectedObjects?.length ? (
+                      <ul className="flex flex-wrap gap-1.5">
+                        {ai.detectedObjects.slice(0, 6).map((o, i) => (
+                          <li key={i} className="badge badge-neutral">{o.label} {pct(o.confidence)}</li>
+                        ))}
+                      </ul>
+                    ) : <p className="text-sm text-[var(--color-ink-400)]">None of the 80 COCO classes were detected – recognition relies on CLIP.</p>}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        {/* Sidebar */}
-        <div className="space-y-4">
-          {/* Reporter */}
+        {/* ── Sidebar ──────────────────────────────────────────────────── */}
+        <aside className="space-y-4">
           <div className="card border border-[var(--color-ink-100)] p-5">
-            <p className="text-xs font-bold text-[var(--color-ink-500)] uppercase tracking-wider mb-3">
-              {type === 'lost' ? 'Reported by' : 'Found by'}
-            </p>
+            <p className="text-xs font-bold text-[var(--color-ink-500)] uppercase tracking-wider mb-3">{type === 'lost' ? 'Reported by' : 'Found by'}</p>
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[var(--color-violet-100)] flex items-center justify-center">
-                {item.reporter?.avatar
-                  ? <img src={item.reporter.avatar} alt="" className="w-full h-full object-cover rounded-full" />
-                  : <span className="text-[var(--color-violet-600)] font-bold">{item.reporter?.name?.charAt(0)}</span>}
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-[var(--color-ink-900)]">{item.reporter?.name || 'Anonymous'}</p>
-                <p className="text-xs text-[var(--color-ink-500)] capitalize">{item.reporter?.department || item.reporter?.role}</p>
+              <Avatar user={item.reporter} />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-[var(--color-ink-900)] truncate">{isOwner ? 'You' : item.reporter?.name}</p>
+                <p className="text-xs text-[var(--color-ink-500)] truncate">{item.reporter?.department || item.reporter?.role}</p>
               </div>
             </div>
-            <p className="text-xs text-[var(--color-ink-300)] mt-3">
-              Reported {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true })}
+            <p className="text-xs text-[var(--color-ink-400)] mt-3 flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5" /> Reported {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true })}
             </p>
           </div>
 
-          {/* Actions */}
-          {!isOwner && user && type === 'lost' && (
-            <div className="card border border-[var(--color-teal-100)] bg-[var(--color-teal-50)] p-5">
-              <p className="text-sm font-bold text-[var(--color-teal-600)] mb-2">Found this item?</p>
-              <p className="text-xs text-[var(--color-ink-500)] mb-4 leading-relaxed">
-                If you've found this item, report it as found and our AI will link the reports.
+          {isOwner && (
+            <div className="card border border-[var(--color-ink-100)] p-5">
+              <p className="text-xs font-bold text-[var(--color-ink-500)] uppercase tracking-wider mb-3">Manage report</p>
+              <div className="grid gap-2">
+                <button onClick={() => setModal('edit')} className="btn btn-ghost justify-start"><Pencil className="w-4 h-4" /> Edit details</button>
+                {item.status === 'active' && (
+                  <>
+                    <button disabled={busy} onClick={() => updateStatus(doneStatus, type === 'lost' ? 'Glad you got it back!' : 'Marked as returned')} className="btn btn-ghost justify-start">
+                      <CheckCircle2 className="w-4 h-4" /> {type === 'lost' ? 'I got it back' : 'Returned to owner'}
+                    </button>
+                    <button disabled={busy} onClick={() => updateStatus('archived', 'Report archived')} className="btn btn-ghost justify-start"><Archive className="w-4 h-4" /> Archive</button>
+                  </>
+                )}
+                {['archived', 'expired'].includes(item.status) && (
+                  <button disabled={busy} onClick={() => updateStatus('active', 'Report reopened')} className="btn btn-ghost justify-start"><RotateCcw className="w-4 h-4" /> Reopen</button>
+                )}
+                <button onClick={() => setModal('delete')} className="btn btn-ghost-danger justify-start"><Trash2 className="w-4 h-4" /> Delete</button>
+              </div>
+            </div>
+          )}
+
+          {isOwner && (
+            <div className="card border border-[var(--color-ink-100)] p-5">
+              <p className="font-bold text-sm text-[var(--color-ink-900)] flex items-center gap-2 mb-3">
+                <Sparkles className="w-4 h-4 text-[var(--color-violet-600)]" /> Possible matches
               </p>
-              <Link to="/report/found" className="btn btn-teal w-full">
-                Report I found it
-              </Link>
+              {matches === null || aiRunning ? (
+                <div className="space-y-3">{[0, 1].map((i) => <div key={i} className="flex gap-3"><div className="skeleton w-12 h-12 rounded-lg" /><div className="flex-1"><div className="skeleton h-3 w-2/3 mb-2" /><div className="skeleton h-2 w-full" /></div></div>)}</div>
+              ) : matches.length === 0 ? (
+                <p className="text-sm text-[var(--color-ink-500)]">
+                  {item.image?.url
+                    ? `Nothing similar yet. You'll be notified as soon as a matching ${type === 'lost' ? 'found' : 'lost'} report comes in.`
+                    : <>Reports without a photo are not matched automatically. <Link className="font-semibold text-[var(--color-violet-600)] hover:underline" to={`/browse?type=${type === 'lost' ? 'found' : 'lost'}`}>Browse {type === 'lost' ? 'found' : 'lost'} items</Link> instead.</>}
+                </p>
+              ) : (
+                <ul className="space-y-1">
+                  {matches.map((m) => {
+                    const other = type === 'lost' ? m.foundItem : m.lostItem;
+                    return (
+                      <li key={m._id}>
+                        <Link to={`/matches/${m._id}`} className="flex items-center gap-3 p-2 -mx-2 rounded-lg hover:bg-[var(--color-canvas)]">
+                          <Thumb item={other} className="w-12 h-12" />
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-sm font-semibold text-[var(--color-ink-900)] truncate">{other.title}</span>
+                            <ScoreBar value={m.combinedScore} className="mt-1.5" />
+                            <span className="flex justify-between text-[11px] text-[var(--color-ink-500)] mt-1">
+                              <span>{pct(m.combinedScore)} match</span>
+                              {m.status !== 'pending' && <StatusBadge status={m.status} className="text-[10px] py-0" />}
+                            </span>
+                          </span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {!isOwner && user && item.status === 'active' && (
+            <div className={clsx('card border p-5', type === 'lost' ? 'border-[var(--color-teal-100)] bg-[var(--color-teal-50)]' : 'border-[var(--color-violet-100)] bg-[var(--color-violet-50)]')}>
+              {type === 'lost' ? (
+                <>
+                  <p className="font-bold text-sm text-[var(--color-ink-900)] mb-1">Have you found this?</p>
+                  <p className="text-xs text-[var(--color-ink-600)] mb-4 leading-relaxed">Report it as found with a photo. The AI will link it to this report and notify the owner.</p>
+                  <Link to="/report/found" className="btn btn-teal w-full">Report it found</Link>
+                </>
+              ) : (
+                <>
+                  <p className="font-bold text-sm text-[var(--color-ink-900)] mb-1">Is this yours?</p>
+                  <p className="text-xs text-[var(--color-ink-600)] mb-4 leading-relaxed">
+                    Report what you lost with a photo. If it matches this item you'll get a match link where you can chat with the finder and submit proof of ownership.
+                  </p>
+                  <Link to="/report/lost" className="btn btn-primary w-full">Report my lost item</Link>
+                  <Link to="/dashboard?tab=matches" className="block text-center text-xs font-semibold text-[var(--color-violet-600)] mt-3 hover:underline">Already reported? See your matches</Link>
+                </>
+              )}
             </div>
           )}
 
           {!user && (
             <div className="card border border-[var(--color-ink-100)] p-5 text-center">
-              <p className="text-sm text-[var(--color-ink-600)] mb-3">Sign in to contact the reporter or submit a claim.</p>
-              <Link to="/login" className="btn btn-primary w-full">Sign in</Link>
+              <p className="text-sm text-[var(--color-ink-600)] mb-3">Sign in to report a match or contact the {type === 'lost' ? 'owner' : 'finder'}.</p>
+              <Link to="/login" state={{ from: `/items/${type}/${id}` }} className="btn btn-primary w-full">Sign in</Link>
             </div>
           )}
 
-          {/* AI Matches (owner only, lost items) */}
-          {isOwner && type === 'lost' && (
-            <div className="card border border-[var(--color-ink-100)] p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <Zap className="w-4 h-4 text-[var(--color-violet-600)]" />
-                <p className="text-sm font-bold text-[var(--color-ink-900)]">AI Matches</p>
-              </div>
-              {matchLoading ? (
-                <div className="space-y-3">
-                  {[...Array(3)].map((_, i) => (
-                    <div key={i} className="flex gap-3">
-                      <div className="skeleton w-12 h-12 rounded-lg shrink-0" />
-                      <div className="flex-1">
-                        <div className="skeleton h-3 w-2/3 mb-1.5" />
-                        <div className="skeleton h-2.5 w-full" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : matches.length === 0 ? (
-                <div className="text-center py-6">
-                  <Zap className="w-8 h-8 text-[var(--color-ink-200)] mx-auto mb-2" />
-                  <p className="text-xs text-[var(--color-ink-400)]">No matches found yet. AI searches automatically.</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {matches.slice(0, 4).map((match) => (
-                    <Link
-                      key={match._id}
-                      to={`/matches/${match._id}`}
-                      className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-[var(--color-canvas-dark)] transition-colors"
-                    >
-                      <div className="w-12 h-12 rounded-lg overflow-hidden bg-[var(--color-canvas-dark)] shrink-0">
-                        {match.foundItem?.image?.url
-                          ? <img src={match.foundItem.image.url} alt="" className="w-full h-full object-cover" />
-                          : <div className="w-full h-full flex items-center justify-center text-xl">📦</div>}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-[var(--color-ink-900)] truncate">{match.foundItem?.title}</p>
-                        <div className="match-bar-track mt-1.5">
-                          <div className="match-bar-fill" style={{ width: `${(match.combinedScore || match.similarityScore) * 100}%` }} />
-                        </div>
-                        <p className="text-[10px] text-[var(--color-ink-400)] mt-1">
-                          {Math.round((match.combinedScore || match.similarityScore) * 100)}% match
-                        </p>
-                      </div>
-                    </Link>
-                  ))}
-                  {matches.length > 4 && (
-                    <p className="text-xs text-center text-[var(--color-violet-600)] font-semibold">
-                      +{matches.length - 4} more matches
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
+          {user && !isOwner && (
+            <button onClick={() => setModal('flag')} className="flex items-center gap-1.5 text-xs text-[var(--color-ink-400)] hover:text-[#b91c1c] w-full justify-center py-2">
+              <Flag className="w-3.5 h-3.5" /> Report this listing
+            </button>
           )}
+        </aside>
+      </div>
 
-          {/* Report */}
-          <button className="flex items-center gap-2 text-xs text-[var(--color-ink-300)] hover:text-[var(--color-red-500)] w-full justify-center py-2">
-            <Flag className="w-3.5 h-3.5" /> Report this listing
-          </button>
+      <EditModal open={modal === 'edit'} onClose={() => setModal(null)} item={item} type={type}
+        onSaved={(updated) => { setItem((i) => ({ ...i, ...updated })); setModal(null); }} />
+
+      <Modal open={modal === 'delete'} onClose={() => setModal(null)} title="Delete this report?">
+        <p className="text-sm text-[var(--color-ink-600)]">This removes the report, its photo and any suggested matches. If you just got the item back, mark it as resolved instead so the stats stay accurate.</p>
+        <div className="flex justify-end gap-2 mt-5">
+          <button onClick={() => setModal(null)} className="btn btn-ghost">Cancel</button>
+          <button onClick={remove} disabled={busy} className="btn btn-danger">{busy ? 'Deleting...' : 'Delete report'}</button>
         </div>
+      </Modal>
+
+      <FlagModal open={modal === 'flag'} onClose={() => setModal(null)} api={api} id={id} />
+    </div>
+  );
+}
+
+function Info({ icon: Icon, label, children }) {
+  return (
+    <div className="flex items-start gap-3">
+      <Icon className="w-4 h-4 text-[var(--color-ink-400)] shrink-0 mt-0.5" />
+      <div className="min-w-0">
+        <dt className="text-[11px] font-bold text-[var(--color-ink-500)] uppercase tracking-wide">{label}</dt>
+        <dd className="text-sm text-[var(--color-ink-800)] break-words">{children}</dd>
       </div>
     </div>
   );
 }
 
-function InfoRow({ icon: Icon, label, children }) {
+function EditModal({ open, onClose, item, type, onSaved }) {
+  const { categories, buildings } = useMeta();
+  const location = type === 'lost' ? item.lastSeenLocation : item.foundLocation;
+  const [form, setForm] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setForm({
+      title: item.title || '',
+      category: item.category || '',
+      description: item.description || '',
+      colors: (item.colors || []).join(', '),
+      building: location?.building || '',
+      area: location?.area || '',
+      ...(type === 'lost'
+        ? { identifyingCharacteristics: item.identifyingCharacteristics || '' }
+        : { currentLocation: item.currentLocation || '' }),
+    });
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const set = (f) => (e) => setForm((s) => ({ ...s, [f]: e.target.value }));
+
+  const save = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const { data } = await itemsApi(type).update(item._id, form);
+      toast.success('Report updated');
+      onSaved(data.item);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <div className="flex items-start gap-3">
-      <Icon className="w-4 h-4 text-[var(--color-ink-300)] shrink-0 mt-0.5" />
-      <div>
-        <span className="text-[11px] font-bold text-[var(--color-ink-500)] uppercase tracking-wide block">{label}</span>
-        <span className="text-sm text-[var(--color-ink-800)]">{children}</span>
-      </div>
-    </div>
+    <Modal open={open} onClose={onClose} title="Edit report" width="max-w-lg">
+      <form onSubmit={save} className="space-y-4">
+        <div><label className="label">Item name</label><input className="input" value={form.title || ''} onChange={set('title')} required maxLength={100} /></div>
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className="label">Category</label>
+            <select className="input" value={form.category || ''} onChange={set('category')}>{categories.map((c) => <option key={c}>{c}</option>)}</select></div>
+          <div><label className="label">Building</label>
+            <select className="input" value={form.building || ''} onChange={set('building')}>{buildings.map((b) => <option key={b}>{b}</option>)}</select></div>
+        </div>
+        <div><label className="label">Exact spot</label><input className="input" value={form.area || ''} onChange={set('area')} maxLength={200} /></div>
+        <div><label className="label">Description</label><textarea className="input min-h-[80px]" value={form.description || ''} onChange={set('description')} maxLength={1000} /></div>
+        <div><label className="label">Colours</label><input className="input" value={form.colors || ''} onChange={set('colors')} /></div>
+        {type === 'lost'
+          ? <div><label className="label">Identifying marks</label><input className="input" value={form.identifyingCharacteristics || ''} onChange={set('identifyingCharacteristics')} maxLength={500} /></div>
+          : <div><label className="label">Item is now</label><input className="input" value={form.currentLocation || ''} onChange={set('currentLocation')} maxLength={200} /></div>}
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose} className="btn btn-ghost">Cancel</button>
+          <button type="submit" disabled={saving} className="btn btn-primary">{saving ? 'Saving...' : 'Save changes'}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function FlagModal({ open, onClose, api, id }) {
+  const [reason, setReason] = useState('');
+  const [sending, setSending] = useState(false);
+  const send = async (e) => {
+    e.preventDefault();
+    setSending(true);
+    try {
+      const { data } = await api.flag(id, reason);
+      toast.success(data.message);
+      setReason('');
+      onClose();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setSending(false);
+    }
+  };
+  return (
+    <Modal open={open} onClose={onClose} title="Report this listing">
+      <form onSubmit={send} className="space-y-4">
+        <p className="text-sm text-[var(--color-ink-600)]">Tell the admins what's wrong – spam, personal information in the description, an offensive photo, or a fake report.</p>
+        <textarea className="input min-h-[90px]" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} required placeholder="What's the problem?" />
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="btn btn-ghost">Cancel</button>
+          <button type="submit" disabled={sending || !reason.trim()} className="btn btn-danger">{sending ? 'Sending...' : 'Send report'}</button>
+        </div>
+      </form>
+    </Modal>
   );
 }

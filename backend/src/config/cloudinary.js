@@ -1,31 +1,36 @@
 const cloudinary = require('cloudinary').v2;
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const multer = require('multer');
 
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+const isCloudinaryConfigured = Boolean(
+  process.env.CLOUDINARY_CLOUD_NAME &&
+  process.env.CLOUDINARY_API_KEY &&
+  process.env.CLOUDINARY_API_SECRET &&
+  process.env.CLOUDINARY_CLOUD_NAME !== 'your_cloud_name'
+);
 
-const storage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: 'findit/items',
-    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
-    transformation: [{ width: 1200, height: 1200, crop: 'limit', quality: 'auto' }],
-  },
-});
+if (isCloudinaryConfigured) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
+}
 
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+// Files are kept in memory so the same bytes can go to storage and to the AI
+// service without a second download. services/storage.js persists them.
 const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 5 },
   fileFilter: (req, file, cb) => {
-    if (!file.mimetype.startsWith('image/')) {
-      return cb(new Error('Only image files are allowed'), false);
+    if (!ALLOWED_TYPES.includes(file.mimetype)) {
+      const err = new Error('Only JPG, PNG or WEBP images are allowed');
+      err.statusCode = 400;
+      return cb(err, false);
     }
     cb(null, true);
   },
 });
 
-module.exports = { cloudinary, upload };
+module.exports = { cloudinary, upload, isCloudinaryConfigured };

@@ -52,10 +52,10 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
-    emailVerificationToken: String,
-    emailVerificationExpires: Date,
-    passwordResetToken: String,
-    passwordResetExpires: Date,
+    emailVerificationToken: { type: String, select: false },
+    emailVerificationExpires: { type: Date, select: false },
+    passwordResetToken: { type: String, select: false },
+    passwordResetExpires: { type: Date, select: false },
     lastLogin: Date,
     notificationPreferences: {
       email: { type: Boolean, default: true },
@@ -70,7 +70,7 @@ const userSchema = new mongoose.Schema(
 );
 
 // ─── Indexes ──────────────────────────────────────────────────────────────────
-userSchema.index({ email: 1 });
+// (email already has a unique index from the field definition)
 userSchema.index({ studentId: 1 });
 userSchema.index({ role: 1 });
 
@@ -86,15 +86,21 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };
 
-// ─── Virtual: Public profile ──────────────────────────────────────────────────
-userSchema.virtual('publicProfile').get(function () {
+// ─── Shape sent to the signed-in user about themselves ───────────────────────
+userSchema.methods.toSelfJSON = function () {
   return {
     id: this._id,
+    _id: this._id,
     name: this.name,
+    email: this.email,
     role: this.role,
+    studentId: this.studentId,
     department: this.department,
+    phone: this.phone,
     avatar: this.avatar,
+    notificationPreferences: this.notificationPreferences,
+    createdAt: this.createdAt,
   };
-});
+};
 
 module.exports = mongoose.model('User', userSchema);
