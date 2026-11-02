@@ -8,6 +8,8 @@ const { processItem, findMatches } = require('../services/aiPipeline');
 const { notifyAdmins, createNotification } = require('./notificationController');
 const { HttpError, escapeRegex, isOwnerOrAdmin, idOf } = require('../utils/http');
 const coins = require('../services/coinService');
+const Message = require('../models/Message');
+const { emitToUser } = require('../services/socketService');
 const User = require('../models/User');
 
 // Lost and found reports behave the same apart from a few field names, so one
@@ -365,7 +367,70 @@ const makeItemController = (type) => {
     }
   };
 
-  return { create, list, getById, mine, update, remove, reprocess, flag, thisIsMine };
+  // ── "I found this" (lost items) ──────────────────────────────────────────
+  // For a finder who spots a lost report: creates their found report and a
+  // conversation with the owner, with the finder's first message. The owner
+  // still confirms and proves ownership before any handover.
+  const iFoundIt = async (req, res, next) => {
+    try {
+      if (type !== 'lost') throw new HttpError(404, 'Not found');
+      const lost = await LostItem.findById(req.params.id);
+      if (!lost || !lost.isPublic) throw new HttpError(404, 'Item not found');
+      if (idOf(lost.reporter) === String(req.user._id)) throw new HttpError(400, 'This is your own report');
+      if (lost.status !== 'active') throw new HttpError(409, 'This item is no longer listed as lost');
+
+      const text = String(req.body.message || '').trim().slice(0, 1000);
+      if (!text) throw new HttpError(400, 'Write a short message to the owner');
+      const where = String(req.body.currentLocation || '').trim().slice(0, 200);
+
+      let match = await Match.findOne({ lostItem: lost._id, foundReporter: req.user._id });
+      if (match?.status === 'rejected') throw new HttpError(400, 'The owner said this was not their item');
+      if (!match) {
+        const found = await FoundItem.create({
+          reporter: req.user._id,
+          title: lost.title,
+          category: lost.category,
+          description: `Reported from the lost item "${lost.title}".`,
+          colors: lost.colors,
+          foundLocation: { building: lost.lastSeenLocation?.building, area: lost.lastSeenLocation?.area },
+          foundDate: new Date(),
+          currentLocation: where || undefined,
+          handoverPreference: 'in-person',
+          aiDetection: { processingStatus: 'skipped' },
+        });
+        match = await Match.create({
+          lostItem: lost._id,
+          foundItem: found._id,
+          lostReporter: lost.reporter,
+          foundReporter: req.user._id,
+          method: 'finder',
+          generatedBy: 'manual',
+          similarityScore: 1,
+          combinedScore: 1,
+          scoreBreakdown: { category: 1, location: 1, date: 1 },
+          foundReporterResponse: 'confirmed',
+        });
+      }
+
+      const message = await Message.create({ match: match._id, sender: req.user._id, body: text });
+      await message.populate('sender', 'name avatar');
+      emitToUser(lost.reporter, 'chat:message', { matchId: String(match._id), message });
+      await createNotification({
+        recipient: lost.reporter,
+        type: 'new_message',
+        title: 'Someone says they found your item',
+        message: `${req.user.name} about your "${lost.title}": ${text.length > 100 ? `${text.slice(0, 97)}...` : text}`,
+        relatedMatch: match._id,
+        relatedLostItem: lost._id,
+        actionUrl: `/messages/${match._id}`,
+      });
+      res.status(201).json({ success: true, matchId: match._id });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  return { create, list, getById, mine, update, remove, reprocess, flag, thisIsMine, iFoundIt };
 };
 
 module.exports = { makeItemController, alertNamedOwner };

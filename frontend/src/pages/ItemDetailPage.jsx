@@ -7,7 +7,7 @@ import {
 import { formatDistanceToNow, format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { clsx } from 'clsx';
-import { itemsApi, matchApi, foundApi, errorMessage } from '../services/api';
+import { itemsApi, matchApi, foundApi, lostApi, errorMessage } from '../services/api';
 import Owl, { Coin } from '../components/Owl';
 import { useAuth } from '../context/AuthContext';
 import { useMeta, HANDOVER_LABELS } from '../context/MetaContext';
@@ -319,8 +319,9 @@ export default function ItemDetailPage({ type }) {
               {type === 'lost' ? (
                 <>
                   <p className="font-bold text-sm text-[var(--color-ink-900)] mb-1">Have you found this?</p>
-                  <p className="text-xs text-[var(--color-ink-600)] mb-4 leading-relaxed">Report it as found with a photo. The AI will link it to this report and notify the owner.</p>
-                  <Link to="/report/found" className="btn btn-teal w-full">Report it found</Link>
+                  <p className="text-xs text-[var(--color-ink-600)] mb-4 leading-relaxed">Message the owner right now – a private chat opens. They prove it's theirs before you hand it over.</p>
+                  <button onClick={() => setModal('found-it')} className="btn btn-teal w-full">I found this – message the owner</button>
+                  <Link to="/report/found" className="block text-center text-xs font-semibold text-[var(--color-teal-600)] mt-3 hover:underline">Or report it with a photo</Link>
                 </>
               ) : (
                 <>
@@ -369,6 +370,7 @@ export default function ItemDetailPage({ type }) {
 
       <FlagModal open={modal === 'flag'} onClose={() => setModal(null)} api={api} id={id} />
       <MineModal open={modal === 'mine'} onClose={() => setModal(null)} item={item} onDone={(matchId) => navigate(`/matches/${matchId}`)} />
+      <FoundItModal open={modal === 'found-it'} onClose={() => setModal(null)} item={item} onDone={(matchId) => navigate(`/messages/${matchId}`)} />
     </div>
   );
 }
@@ -506,6 +508,48 @@ function MineModal({ open, onClose, item, onDone }) {
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className="btn btn-ghost">Cancel</button>
           <button type="submit" disabled={sending} className="btn btn-primary">{sending ? 'Opening chat...' : 'Yes, it is mine'}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function FoundItModal({ open, onClose, item, onDone }) {
+  const [message, setMessage] = useState('');
+  const [where, setWhere] = useState('');
+  const [sending, setSending] = useState(false);
+  useEffect(() => {
+    if (open) setMessage(`Hi! I think I found your ${item?.title?.toLowerCase() || 'item'}.`);
+  }, [open, item?.title]);
+  const send = async (e) => {
+    e.preventDefault();
+    setSending(true);
+    try {
+      const { data } = await lostApi.foundIt(item._id, { message, currentLocation: where });
+      toast.success('Message sent to the owner');
+      onDone(data.matchId);
+    } catch (err) {
+      toast.error(errorMessage(err));
+      setSending(false);
+    }
+  };
+  return (
+    <Modal open={open} onClose={onClose} title="Message the owner">
+      <form onSubmit={send} className="space-y-4">
+        <p className="text-sm text-[var(--color-ink-600)]">
+          This opens a private chat with the owner. Don't describe hidden details (what's inside, serial numbers) – the owner uses those to prove it's theirs.
+        </p>
+        <div>
+          <label className="label" htmlFor="fi-msg">Your message</label>
+          <textarea id="fi-msg" className="input min-h-[90px]" value={message} onChange={(e) => setMessage(e.target.value)} maxLength={1000} required />
+        </div>
+        <div>
+          <label className="label" htmlFor="fi-where">Where is it now? <span className="font-normal text-[var(--color-ink-400)]">(optional)</span></label>
+          <input id="fi-where" className="input" value={where} onChange={(e) => setWhere(e.target.value)} maxLength={200} placeholder="e.g. With me, or handed to the library desk" />
+        </div>
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="btn btn-ghost">Cancel</button>
+          <button type="submit" disabled={sending || !message.trim()} className="btn btn-teal">{sending ? 'Sending...' : 'Send message'}</button>
         </div>
       </form>
     </Modal>

@@ -14,7 +14,8 @@ const matchSchema = new mongoose.Schema(
     // photo   – compared by the AI service
     // details – no photo (or AI offline): compared on category, words, place, date
     // owner   – the owner said "this is mine" directly on a found report
-    method: { type: String, enum: ['photo', 'details', 'owner'], default: 'photo' },
+    // finder  – the finder contacted the owner directly from a lost report
+    method: { type: String, enum: ['photo', 'details', 'owner', 'finder'], default: 'photo' },
     scoreBreakdown: {
       visual: Number,
       text: Number,

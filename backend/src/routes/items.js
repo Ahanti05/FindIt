@@ -18,6 +18,7 @@ const itemRouter = (type) => {
   router.post('/:id/reprocess', authenticate, c.reprocess);
   router.post('/:id/flag', authenticate, c.flag);
   if (type === 'found') router.post('/:id/mine', authenticate, c.thisIsMine);
+  if (type === 'lost') router.post('/:id/found-it', authenticate, c.iFoundIt);
 
   return router;
 };

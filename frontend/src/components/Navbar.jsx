@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bell, Menu, X, ChevronDown, LogOut, LayoutDashboard, Settings, ShieldCheck, Coins } from 'lucide-react';
+import { Bell, Menu, X, ChevronDown, LogOut, LayoutDashboard, Settings, ShieldCheck, Coins, MessageSquare } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { useSocket, useSocketEvent } from '../context/SocketContext';
-import { notifApi } from '../services/api';
+import { notifApi, matchApi } from '../services/api';
 import { clsx } from 'clsx';
 import NotificationDropdown from './NotificationDropdown';
 import { Avatar } from './ui';
@@ -44,6 +44,32 @@ function CoinBadge() {
   );
 }
 
+// Messages icon with the number of unread chat messages.
+function MessagesButton() {
+  const location = useLocation();
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    const refresh = () => matchApi.unread().then(({ data }) => setUnread(data.unread)).catch(() => {});
+    refresh();
+    window.addEventListener('findit:messages-read', refresh);
+    return () => window.removeEventListener('findit:messages-read', refresh);
+  }, [location.pathname]);
+  const onMessage = useCallback(({ matchId }) => {
+    if (location.pathname !== `/messages/${matchId}`) setUnread((n) => n + 1);
+  }, [location.pathname]);
+  useSocketEvent('chat:message', onMessage);
+  return (
+    <Link to="/messages" className="btn btn-icon btn-ghost relative border-0" aria-label={`Messages${unread ? ` (${unread} unread)` : ''}`} title="Messages">
+      <MessageSquare className="w-[18px] h-[18px]" />
+      {unread > 0 && (
+        <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 text-[10px] font-bold bg-[var(--color-violet-600)] text-white rounded-full flex items-center justify-center">
+          {unread > 9 ? '9+' : unread}
+        </span>
+      )}
+    </Link>
+  );
+}
+
 export default function Navbar() {
   const { user, logout } = useAuth();
   const { connected } = useSocket();
@@ -75,6 +101,7 @@ export default function Navbar() {
 
   const menuItems = user ? [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { to: '/messages', icon: MessageSquare, label: 'Messages' },
     { to: '/coins', icon: Coins, label: 'FindIt coins' },
     { to: '/profile', icon: Settings, label: 'Profile' },
     ...(user.role === 'admin' ? [{ to: '/admin', icon: ShieldCheck, label: 'Admin' }] : []),
@@ -107,6 +134,7 @@ export default function Navbar() {
             {user ? (
               <>
                 <CoinBadge />
+                <MessagesButton />
                 <div className="relative">
                   <button
                     onClick={() => { setNotifOpen(!notifOpen); setUserMenuOpen(false); }}

@@ -49,7 +49,11 @@ const itemApi = (base) => ({
   reprocess: (id) => api.post(`${base}/${id}/reprocess`),
   flag: (id, reason) => api.post(`${base}/${id}/flag`, { reason }),
 });
-export const lostApi = itemApi('/lost-items');
+export const lostApi = {
+  ...itemApi('/lost-items'),
+  // "I found this" – the finder messages the owner directly from a lost report
+  foundIt: (id, data) => api.post(`/lost-items/${id}/found-it`, data),
+};
 export const foundApi = {
   ...itemApi('/found-items'),
   // "This is mine" – opens a match with the finder for an owner who never filed a lost report
@@ -65,6 +69,9 @@ export const matchApi = {
   respond: (matchId, response) => api.patch(`/matches/${matchId}/respond`, { response }),
   messages: (matchId) => api.get(`/matches/${matchId}/messages`),
   send: (matchId, body) => api.post(`/matches/${matchId}/messages`, { body }),
+  markRead: (matchId) => api.post(`/matches/${matchId}/messages/read`),
+  conversations: () => api.get('/matches/conversations'),
+  unread: () => api.get('/matches/unread'),
 };
 
 // ─── Notifications ────────────────────────────────────────────────────────────

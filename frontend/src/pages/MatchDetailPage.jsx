@@ -1,16 +1,16 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import {
-  ArrowLeft, Sparkles, MapPin, Calendar, CheckCircle2, XCircle, Loader2, Send, Lock,
-  MessageSquare, ImagePlus, X, ShieldCheck, ArrowRight,
+  ArrowLeft, Sparkles, MapPin, Calendar, CheckCircle2, XCircle, Loader2,
+  ImagePlus, X, ShieldCheck, ArrowRight,
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import toast from 'react-hot-toast';
 import { clsx } from 'clsx';
 import { matchApi, recoveryApi, errorMessage } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { useSocketEvent } from '../context/SocketContext';
 import { Avatar, ScoreBar, StatusBadge, pct } from '../components/ui';
+import ChatPanel from '../components/ChatPanel';
 
 const SIGNALS = {
   photo: [
@@ -137,7 +137,10 @@ export default function MatchDetailPage() {
             onClaimed={(id) => navigate(`/recovery/${id}`)}
           />
         </div>
-        <ChatPanel match={match} role={role} me={user} />
+        <ChatPanel
+          matchId={match._id} role={role} me={user}
+          other={role === 'owner' ? match.foundReporter : role === 'finder' ? match.lostReporter : null}
+        />
       </div>
     </div>
   );
@@ -303,85 +306,6 @@ function ClaimForm({ match, onClaimed }) {
         {sending ? <><Loader2 className="w-4 h-4 animate-spin" /> Submitting...</> : 'Submit claim'}
       </button>
     </form>
-  );
-}
-
-function ChatPanel({ match, role, me }) {
-  const [messages, setMessages] = useState([]);
-  const [open, setOpen] = useState(false);
-  const [body, setBody] = useState('');
-  const [sending, setSending] = useState(false);
-  const listRef = useRef(null);
-  const matchId = match._id;
-
-  useEffect(() => {
-    matchApi.messages(matchId).then(({ data }) => { setMessages(data.messages); setOpen(data.open); }).catch(() => {});
-  }, [matchId, match.status]);
-
-  useEffect(() => {
-    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [messages]);
-
-  const onIncoming = useCallback(({ matchId: id, message }) => {
-    if (id === matchId) setMessages((ms) => (ms.some((m) => m._id === message._id) ? ms : [...ms, message]));
-  }, [matchId]);
-  useSocketEvent('chat:message', onIncoming);
-
-  const send = async (e) => {
-    e.preventDefault();
-    const text = body.trim();
-    if (!text) return;
-    setSending(true);
-    try {
-      const { data } = await matchApi.send(matchId, text);
-      setMessages((ms) => [...ms, data.message]);
-      setBody('');
-    } catch (err) {
-      toast.error(errorMessage(err));
-    } finally {
-      setSending(false);
-    }
-  };
-
-  const otherName = role === 'owner' ? match.foundReporter?.name : match.lostReporter?.name;
-
-  return (
-    <section id="chat" className="card border border-[var(--color-ink-100)] flex flex-col h-[460px] scroll-mt-20">
-      <header className="px-5 py-3.5 border-b border-[var(--color-ink-100)] flex items-center gap-2">
-        <MessageSquare className="w-4 h-4 text-[var(--color-violet-600)]" />
-        <p className="font-bold text-sm text-[var(--color-ink-900)] truncate">Chat{role !== 'admin' && otherName ? ` with ${otherName}` : ''}</p>
-        <span className="text-[11px] text-[var(--color-ink-400)] ml-auto">Contact details stay private</span>
-      </header>
-
-      <div ref={listRef} className="flex-1 overflow-y-auto p-4 space-y-3">
-        {!open && messages.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center px-6">
-            <Lock className="w-6 h-6 text-[var(--color-ink-300)] mb-2" />
-            <p className="text-sm text-[var(--color-ink-500)]">Chat opens once the owner confirms the item looks like theirs.</p>
-          </div>
-        ) : messages.length === 0 ? (
-          <p className="text-sm text-[var(--color-ink-400)] text-center mt-10">No messages yet. Say hello and agree where to meet.</p>
-        ) : messages.map((m) => {
-          const mine = String(m.sender?._id || m.sender) === String(me?.id);
-          return (
-            <div key={m._id} className={clsx('flex gap-2', mine && 'flex-row-reverse')}>
-              {!mine && <Avatar user={m.sender} size="w-7 h-7" text="text-[11px]" />}
-              <div className={clsx('max-w-[78%] rounded-2xl px-3.5 py-2', mine ? 'bg-[var(--color-ink-900)] text-white rounded-br-md' : 'bg-[var(--color-canvas-dark)] text-[var(--color-ink-900)] rounded-bl-md')}>
-                <p className="text-sm whitespace-pre-wrap break-words">{m.body}</p>
-                <p className={clsx('text-[10px] mt-1', mine ? 'text-white/60' : 'text-[var(--color-ink-400)]')}>{format(new Date(m.createdAt), 'd MMM, HH:mm')}</p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {open && role !== 'admin' && (
-        <form onSubmit={send} className="p-3 border-t border-[var(--color-ink-100)] flex gap-2">
-          <input className="input" value={body} onChange={(e) => setBody(e.target.value)} placeholder="Write a message" maxLength={1000} aria-label="Message" />
-          <button type="submit" disabled={sending || !body.trim()} className="btn btn-primary px-3" aria-label="Send"><Send className="w-4 h-4" /></button>
-        </form>
-      )}
-    </section>
   );
 }
 

@@ -35,6 +35,13 @@ B.Tech CSE design-thinking project – Ahanti K Kadam (4001), Maruf F Nadaf (403
 - **"This is mine"** – on any found item, the owner can say so directly. That creates their lost report and
   an owner-confirmed match, so the chat and the claim form open immediately. Ownership is still verified.
 
+### Messages
+
+`/messages` is an inbox of every conversation between an owner and a finder: unread badges (also on the
+navbar icon), live delivery over Socket.IO, "Seen" receipts, search, and a link to the claim. A chat
+starts when the owner confirms a match, taps **"This is mine"** on a found item, or when a finder taps
+**"I found this – message the owner"** on a lost report. Emails and phone numbers are never shared.
+
 ### FindIt coins
 
 | Action | Coins |
@@ -154,7 +161,7 @@ at http://localhost:5000.
 ### Tests
 
 ```bash
-cd backend && npm run seed -- --reset && npm run test:e2e   # 81 checks against the running stack
+cd backend && npm run seed -- --reset && npm run test:e2e   # 95 checks against the running stack
 cd ai-service && python calibrate.py                          # AI accuracy on the demo photos
 ```
 

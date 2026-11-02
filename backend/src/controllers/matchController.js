@@ -140,7 +140,22 @@ const respondToMatch = async (req, res, next) => {
 };
 
 // ─── Chat ─────────────────────────────────────────────────────────────────────
-const chatOpen = (match) => ['accepted', 'verified'].includes(match.status);
+// Chat opens once the owner says the item looks like theirs, or straight away
+// when the finder reached out to the owner themselves.
+const chatOpen = (match) => ['accepted', 'verified'].includes(match.status)
+  || (match.method === 'finder' && match.status !== 'rejected');
+
+// Marks the other person's messages as read and tells them ("Seen").
+const markRead = async (match, userId) => {
+  const result = await Message.updateMany(
+    { match: match._id, sender: { $ne: userId }, readAt: null },
+    { readAt: new Date() }
+  );
+  if (result.modifiedCount) {
+    const other = idOf(match.lostReporter) === String(userId) ? match.foundReporter : match.lostReporter;
+    emitToUser(other, 'chat:read', { matchId: String(match._id), readAt: new Date() });
+  }
+};
 
 const getMessages = async (req, res, next) => {
   try {
@@ -149,14 +164,18 @@ const getMessages = async (req, res, next) => {
       .populate('sender', 'name avatar')
       .sort({ createdAt: 1 })
       .limit(500);
-
-    if (role !== 'admin') {
-      await Message.updateMany(
-        { match: match._id, sender: { $ne: req.user._id }, readAt: null },
-        { readAt: new Date() }
-      );
-    }
+    if (role !== 'admin') await markRead(match, req.user._id);
     res.json({ success: true, messages, open: chatOpen(match) });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const readMessages = async (req, res, next) => {
+  try {
+    const { match, role } = await loadMatch(req);
+    if (role !== 'admin') await markRead(match, req.user._id);
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }
@@ -187,7 +206,7 @@ const sendMessage = async (req, res, next) => {
         title: `New message from ${req.user.name.split(' ')[0]}`,
         message: body.length > 120 ? `${body.slice(0, 117)}...` : body,
         relatedMatch: match._id,
-        actionUrl: `/matches/${match._id}#chat`,
+        actionUrl: `/messages/${match._id}`,
       });
     }
 
@@ -197,6 +216,70 @@ const sendMessage = async (req, res, next) => {
   }
 };
 
+// ─── Inbox: every conversation I'm part of ────────────────────────────────────
+const getConversations = async (req, res, next) => {
+  try {
+    const me = req.user._id;
+    const matches = await Match.find({ $or: [{ lostReporter: me }, { foundReporter: me }] })
+      .populate('lostItem', 'title category image status')
+      .populate('foundItem', 'title category image status')
+      .populate('lostReporter', REPORTER)
+      .populate('foundReporter', REPORTER)
+      .limit(200);
+
+    const ids = matches.map((m) => m._id);
+    const [lastMessages, unread] = await Promise.all([
+      Message.aggregate([
+        { $match: { match: { $in: ids } } },
+        { $sort: { createdAt: -1 } },
+        { $group: { _id: '$match', body: { $first: '$body' }, sender: { $first: '$sender' }, createdAt: { $first: '$createdAt' }, readAt: { $first: '$readAt' } } },
+      ]),
+      Message.aggregate([
+        { $match: { match: { $in: ids }, sender: { $ne: me }, readAt: null } },
+        { $group: { _id: '$match', count: { $sum: 1 } } },
+      ]),
+    ]);
+    const lastBy = new Map(lastMessages.map((m) => [String(m._id), m]));
+    const unreadBy = new Map(unread.map((u) => [String(u._id), u.count]));
+
+    const conversations = matches
+      .filter((m) => m.lostItem && m.foundItem && (chatOpen(m) || lastBy.has(String(m._id))))
+      .map((m) => {
+        const role = idOf(m.lostReporter) === String(me) ? 'owner' : 'finder';
+        const last = lastBy.get(String(m._id));
+        return {
+          matchId: m._id,
+          role,
+          status: m.status,
+          open: chatOpen(m),
+          other: role === 'owner' ? m.foundReporter : m.lostReporter,
+          item: role === 'owner' ? m.foundItem : m.lostItem,
+          myItem: role === 'owner' ? m.lostItem : m.foundItem,
+          lastMessage: last ? { body: last.body, mine: String(last.sender) === String(me), createdAt: last.createdAt, readAt: last.readAt } : null,
+          unread: unreadBy.get(String(m._id)) || 0,
+          updatedAt: last?.createdAt || m.updatedAt,
+        };
+      })
+      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+
+    res.json({ success: true, conversations, unread: conversations.reduce((n, c) => n + c.unread, 0) });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const getUnreadCount = async (req, res, next) => {
+  try {
+    const me = req.user._id;
+    const ids = (await Match.find({ $or: [{ lostReporter: me }, { foundReporter: me }] }).select('_id')).map((m) => m._id);
+    const unread = await Message.countDocuments({ match: { $in: ids }, sender: { $ne: me }, readAt: null });
+    res.json({ success: true, unread });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
-  getMyMatches, getMatchesForItem, getMatch, respondToMatch, getMessages, sendMessage,
+  getMyMatches, getMatchesForItem, getMatch, respondToMatch, getMessages, sendMessage, readMessages,
+  getConversations, getUnreadCount, chatOpen,
 };

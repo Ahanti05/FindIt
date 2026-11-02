@@ -212,6 +212,47 @@ async function main() {
   check('finder told that the owner came forward', priyaNotes.some((n) => n.relatedMatch === mineRes.data.matchId));
   check('chat is open straight away', (await call('POST', `/matches/${mineRes.data.matchId}/messages`, { token: arun, body: { body: 'It has my name on the first page.' } })).status === 201);
   check('repeating "this is mine" reuses the match', (await call('POST', `/found-items/${named.data.item._id}/mine`, { token: arun, body: {} })).data.matchId === mineRes.data.matchId);
+  console.log('\nMessages section');
+  const sockArun = io(BASE, { auth: { token: arun }, transports: ['websocket'], reconnection: false });
+  await new Promise((resolve) => sockArun.on('connect', resolve));
+  const reads = [];
+  sockArun.on('chat:read', (r) => reads.push(r));
+  const arunConvos = (await call('GET', '/matches/conversations', { token: arun })).data;
+  const walletConvo = arunConvos.conversations.find((c) => c.item?.title === 'Brown wallet');
+  check('inbox lists the wallet chat with the finder', walletConvo?.other?.name === 'Campus Security' && walletConvo.role === 'owner');
+  check('inbox lists the "this is mine" chat', arunConvos.conversations.some((c) => String(c.matchId) === String(mineRes.data.matchId)));
+  check('inbox never exposes emails', !JSON.stringify(arunConvos).includes('@university.edu'));
+  const before = (await call('GET', '/matches/unread', { token: arun })).data.unread;
+  await call('POST', `/matches/${walletConvo.matchId}/messages`, { token: security, body: { body: 'Your wallet is ready at the main gate desk.' } });
+  check('unread count goes up for the owner', (await call('GET', '/matches/unread', { token: arun })).data.unread === before + 1);
+  await call('GET', `/matches/${walletConvo.matchId}/messages`, { token: arun });
+  await wait(300);
+  const afterOpen = (await call('GET', '/matches/conversations', { token: arun })).data.conversations
+    .find((c) => String(c.matchId) === String(walletConvo.matchId));
+  check('opening the chat clears its unread messages', afterOpen.unread === 0);
+  const secMsgs = (await call('GET', `/matches/${walletConvo.matchId}/messages`, { token: security })).data.messages;
+  check('finder sees "Seen" on their message', Boolean(secMsgs[secMsgs.length - 1].readAt));
+  await call('POST', `/matches/${walletConvo.matchId}/messages`, { token: arun, body: { body: 'Thanks, coming at 4!' } });
+  await call('POST', `/matches/${walletConvo.matchId}/messages/read`, { token: security });
+  await wait(300);
+  check('owner gets a live read receipt', reads.some((r) => String(r.matchId) === String(walletConvo.matchId)));
+  check('outsider cannot read the conversation list of others', !((await call('GET', '/matches/conversations', { token: rahul })).data.conversations
+    .some((c) => String(c.matchId) === String(walletConvo.matchId))));
+  sockArun.close();
+
+  console.log('\n"I found this" – finder messages the owner');
+  const keysLost = (await call('GET', '/lost-items?limit=50')).data.items.find((i) => i.title.startsWith('Bunch of keys'));
+  check('owner cannot use "I found this" on own report', (await call('POST', `/lost-items/${keysLost._id}/found-it`, { token: rahul, body: { message: 'hi' } })).status === 400);
+  check('empty message is refused', (await call('POST', `/lost-items/${keysLost._id}/found-it`, { token: arun, body: { message: ' ' } })).status === 400);
+  const foundIt = await call('POST', `/lost-items/${keysLost._id}/found-it`, { token: arun, body: { message: 'I think I found your keys near the gym.', currentLocation: 'With me' } });
+  check('"I found this" opens a conversation', foundIt.status === 201 && Boolean(foundIt.data.matchId));
+  const ownerInbox = (await call('GET', '/matches/conversations', { token: rahul })).data.conversations;
+  const fiConvo = ownerInbox.find((c) => String(c.matchId) === String(foundIt.data.matchId));
+  check('owner sees it in Messages with 1 unread', fiConvo?.unread === 1 && fiConvo.open && fiConvo.role === 'owner');
+  check('owner can reply straight away', (await call('POST', `/matches/${foundIt.data.matchId}/messages`, { token: rahul, body: { body: 'Yes! Red Swiss knife on it?' } })).status === 201);
+  const rahulNotes2 = (await call('GET', '/notifications', { token: rahul })).data.notifications;
+  check('owner notification links to Messages', rahulNotes2.some((n) => n.actionUrl === `/messages/${foundIt.data.matchId}`));
+
   const leaderboard = (await call('GET', '/coins/leaderboard')).data.leaderboard;
   check('leaderboard lists finders', leaderboard.length > 0 && leaderboard[0].earned > 0);
 

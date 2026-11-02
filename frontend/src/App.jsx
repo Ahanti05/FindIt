@@ -20,6 +20,7 @@ import MatchDetailPage from './pages/MatchDetailPage';
 import RecoveryPage from './pages/RecoveryPage';
 import ProfilePage from './pages/ProfilePage';
 import CoinsPage from './pages/CoinsPage';
+import MessagesPage from './pages/MessagesPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 // Charts are only needed by admins – keep them out of the main bundle.
@@ -62,6 +63,8 @@ function AppRoutes() {
         <Route path="/recovery/:id" element={<ProtectedRoute><RecoveryPage /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
         <Route path="/coins" element={<ProtectedRoute><CoinsPage /></ProtectedRoute>} />
+        <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
+        <Route path="/messages/:matchId" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
 
         <Route path="/admin" element={<ProtectedRoute adminOnly><Suspense fallback={<div className="min-h-[60vh]" />}><AdminDashboard /></Suspense></ProtectedRoute>} />
 
