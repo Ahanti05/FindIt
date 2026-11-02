@@ -1,328 +1,166 @@
-# FindIt – AI-Powered Smart Lost & Found Platform
+# FindIt – AI-Powered Smart Lost & Found
 
-> *"Lost something? Let's bring it back."*
+> *"Lost something? Find it faster."*
 
-A production-quality, full-stack web application built for campus communities. FindIt uses **YOLOv8 object detection** and **ResNet50 visual embeddings** to automatically match lost and found reports — delivering a seamless, AI-driven recovery workflow from photo upload to QR-code handover.
+A campus lost-and-found platform. Owners and finders report items with a photo;
+an AI service recognises the object, turns the photo into a visual fingerprint
+and matches lost reports against found ones. Both sides are notified, chat inside
+the app, and the item is handed over only after ownership is verified and a
+one-time handover code is confirmed.
 
----
-
-## 🖼️ Screenshots
-
-| Landing Page | Login | Register |
-|---|---|---|
-| Hero + live stats | Split-panel auth | Full account form |
+B.Tech CSE design-thinking project – Ahanti K Kadam (4001), Maruf F Nadaf (4030), Arman R Shaikh (4033).
 
 ---
 
-## 🏗️ Architecture Overview
+## What it does
 
-```
-FindIt/
-├── frontend/          # React 19 + Vite 8 + Tailwind CSS v4
-├── backend/           # Node.js + Express + MongoDB + Socket.IO
-├── ai-service/        # Python FastAPI + YOLOv8 + ResNet50
-└── docs/              # Architecture diagrams, API specs
-```
-
-### Data flow
-
-```
-User uploads image
-        │
-        ▼
-[Express API]  →  Cloudinary (image stored)
-        │
-        ├─ [FastAPI /detect]  →  YOLOv8 detects objects + bounding boxes
-        │
-        └─ [FastAPI /embed]   →  ResNet50 generates 2048-d embedding
-                                            │
-                                     [FastAPI /match]
-                                            │
-                               Cosine similarity + category
-                               + location + date score
-                                            │
-                               Match document saved to MongoDB
-                                            │
-                               Socket.IO notification → browser
-```
-
----
-
-## ✨ Key Features
-
-| Feature | Details |
+| Step | What happens |
 |---|---|
-| **YOLO Object Detection** | YOLOv8n identifies objects in uploaded photos with bounding box overlays |
-| **Visual Similarity Matching** | ResNet50 (2048-d) embeddings + cosine similarity with multi-signal ranking |
-| **Real-Time Notifications** | Socket.IO pushes match alerts and recovery status without polling |
-| **QR Recovery Codes** | Approved recovery requests generate verifiable QR codes for handover |
-| **Campus Heatmap** | Admin dashboard shows where items are most commonly lost |
-| **4-Step Report Wizard** | Guided lost/found reporting with drag-and-drop image upload |
-| **Role-Based Access** | Student / Faculty / Staff / Admin with per-route guards |
-| **Secure Claim Flow** | Claimants submit private evidence; admins verify before handover |
+| **Report** | 4-step wizard. The photo is analysed immediately and the AI suggests the category (top 3 guesses shown). |
+| **Match** | YOLOv8 localises the object, CLIP ViT-B/32 embeds it, and every new report is ranked against open reports of the other kind. |
+| **Notify** | Owner **and** finder get a live Socket.IO notification for likely matches (score ≥ 0.70). |
+| **Talk** | Once the owner says "this looks like mine", a private chat opens. Emails/phones are never shown. |
+| **Claim** | Owner submits proof only they would know, with optional photos. Only the finder and admins can see it. |
+| **Verify** | The finder or the Lost & Found office approves or declines and sets the handover place. |
+| **Hand over** | The owner gets a 6-digit code + QR. The finder enters it; reports close as recovered/returned. |
+
+Also: browse and search with filters, flag a listing, edit/archive/delete your reports, re-run AI,
+profile and password change, password reset, admin dashboard (stats, AI status, claims queue,
+moderation, users).
+
+## Architecture
+
+```
+React (Vite, Tailwind)  ──REST + Socket.IO──►  Node/Express API  ──►  MongoDB
+                                                    │
+                                                    └─ image bytes ─►  FastAPI AI service
+                                                                       YOLOv8n + CLIP ViT-B/32
+```
+
+- The **backend** owns all data. It sends image bytes to the AI service and, for
+  matching, the query embedding plus candidate embeddings. The AI service never
+  fetches URLs and never touches the database.
+- Images are stored on **Cloudinary** if configured, otherwise in `backend/uploads/`.
+
+### Matching score
+
+```
+combined = 0.60 × visual + 0.20 × category + 0.10 × location + 0.10 × date
+```
+
+- **visual** – CLIP cosine similarity rescaled from [0.65, 0.95] to [0, 1]
+- **category** – 1 if both reports use the same category
+- **location** – 1 same building, 0 different, 0.5 unknown
+- **date** – Gaussian decay on the gap (σ = 5 days); a found date before the lost date scores 0
+
+Matches ≥ 0.45 are stored and shown; ≥ 0.70 trigger notifications.
+
+### Measured on the demo photos (`ai-service/calibrate.py`)
+
+| | Result |
+|---|---|
+| Category recognition | 21 / 22 photos correct (a folded umbrella was read as clothing) |
+| CLIP cosine, same object photographed twice | 0.889 – 0.978 |
+| CLIP cosine, same category but a different object | 0.640 – 0.856 |
+| CLIP cosine, different category | 0.307 – 0.770 |
+
+**Limitations.** These numbers come from 22 photos, and the five "same object" pairs are
+simulated re-shots (see `backend/seed/images/CREDITS.md`), so treat them as a sanity check,
+not an accuracy claim. Very similar objects can still score high. In the demo data, two
+*different* white chargers score 0.81 and trigger a notification. That is why matches are
+only suggestions and every handover needs owner confirmation, finder/admin verification and
+a handover code. YOLOv8 is trained on COCO, which has no ID card, wallet, key or charger
+class, so category recognition relies on CLIP. YOLO is used only to draw boxes and to crop
+when it agrees with CLIP.
 
 ---
 
-## 🛠️ Tech Stack
+## Run it locally
 
-### Frontend
-- **React 19** with Vite 8
-- **Tailwind CSS v4** (`@theme` design tokens)
-- **Framer Motion** – page transitions, animated score bars
-- **Recharts** – admin analytics charts
-- **react-dropzone** – drag-and-drop image upload
-- **socket.io-client** – real-time notifications
-- **react-hot-toast** – toast notifications
-- **qrcode.react** – QR code display
-- **date-fns** – human-friendly dates
-
-### Backend
-- **Node.js + Express 5**
-- **MongoDB + Mongoose**
-- **Socket.IO** – user-specific notification rooms
-- **Cloudinary** – image hosting with multer-storage-cloudinary
-- **JWT** + bcrypt – authentication
-- **qrcode** – QR code generation
-- **express-rate-limit** – API protection
-
-### AI Service
-- **FastAPI** – async Python REST API
-- **YOLOv8n** (Ultralytics) – real-time object detection
-- **ResNet50** (TensorFlow/Keras) – visual feature embeddings
-- **NumPy** – cosine similarity computation
-- **OpenCV** – bounding box annotation
-
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-- **Node.js 20+**
-- **Python 3.10+**
-- **MongoDB** (local or Atlas)
-- **Cloudinary account** (free tier works)
-
----
-
-### 1. Clone & install
+Requirements: **Node 20+**, **Python 3.10+**. MongoDB is optional (see step 2).
+A GPU is used automatically if PyTorch finds one; CPU works too.
 
 ```bash
-git clone https://github.com/your-username/findit.git
-cd findit
-```
-
-#### Backend
-```bash
-cd backend
-cp .env.example .env     # fill in your values
-npm install
-npm run dev
-```
-
-#### Frontend
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-#### AI Service
-```bash
-cd ai-service
-python -m venv venv
-venv\Scripts\activate       # Windows
-# source venv/bin/activate  # macOS/Linux
+# 1. Install
+cd backend  && npm install && cp .env.example .env   # then set JWT_SECRET
+cd ../frontend && npm install
+cd ../ai-service && python -m venv venv
+venv\Scripts\activate            # Windows  (source venv/bin/activate on macOS/Linux)
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+
+# 2. Database – either point MONGODB_URI at your MongoDB/Atlas, or run a local one:
+cd backend && npm run db         # downloads a MongoDB binary once, keeps data in backend/.data
+
+# 3. AI service (first start downloads YOLOv8n and CLIP weights, ~600 MB)
+cd ai-service && uvicorn main:app --port 8000
+
+# 4. API
+cd backend && npm run dev
+
+# 5. Demo data – runs every photo through the real AI pipeline
+cd backend && npm run seed -- --reset
+
+# 6. Frontend
+cd frontend && npm run dev       # http://localhost:5173
 ```
 
----
+For a single-port demo run `npm run build` in `frontend/`. The backend then serves the app
+at http://localhost:5000.
 
-### 2. Environment Variables
+### Demo accounts (`DEMO_MODE=true` shows them on the login page)
 
-**`backend/.env`**
-```env
-NODE_ENV=development
-PORT=5000
-MONGODB_URI=mongodb://localhost:27017/findit
-JWT_SECRET=your_32_char_secret_here
-JWT_EXPIRES_IN=7d
-CLOUDINARY_CLOUD_NAME=your_cloud_name
-CLOUDINARY_API_KEY=your_api_key
-CLOUDINARY_API_SECRET=your_api_secret
-AI_SERVICE_URL=http://localhost:8000
-CLIENT_URL=http://localhost:5173
-```
-
-**`frontend` (Vite proxy)**  
-The Vite config already proxies `/api` → `http://localhost:5000` and `/socket.io` for development.
-
----
-
-### 3. Access the app
-
-| Service | URL |
-|---|---|
-| Frontend | http://localhost:5173 |
-| Backend API | http://localhost:5000/api |
-| AI Service | http://localhost:8000/docs |
-
----
-
-## 📡 API Reference
-
-### Auth
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/api/auth/register` | Create account |
-| POST | `/api/auth/login` | Login → JWT token |
-| GET | `/api/auth/me` | Current user |
-| POST | `/api/auth/forgot-password` | Send reset email |
-| PATCH | `/api/auth/profile` | Update profile |
-
-### Lost Items
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/lost-items` | Browse (filter, search, paginate) |
-| POST | `/api/lost-items` | Report lost item (multipart) |
-| GET | `/api/lost-items/my` | My reports |
-| GET | `/api/lost-items/:id` | Detail view |
-| PATCH | `/api/lost-items/:id` | Update |
-| DELETE | `/api/lost-items/:id` | Delete |
-
-### Found Items
-Same structure under `/api/found-items`.
-
-### AI / Matches
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/matches/lost/:id` | Matches for a lost item |
-| GET | `/api/matches/:id` | Match detail |
-| PATCH | `/api/matches/:id/respond` | Accept/reject match |
-
-### Recovery
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/api/recovery` | Submit ownership claim |
-| GET | `/api/recovery/:id` | Recovery status + QR |
-| PATCH | `/api/recovery/:id/review` | Admin approve/deny |
-
-### Admin
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/admin/stats` | Platform analytics |
-| GET | `/api/admin/pending` | Pending moderation queue |
-| PATCH | `/api/admin/moderate/:type/:id` | Approve/hide item |
-| GET | `/api/admin/users` | All users |
-| PATCH | `/api/admin/users/:id/toggle` | Activate/deactivate user |
-
----
-
-## 🤖 AI Service Endpoints
-
-| Method | Endpoint | Input | Output |
+| Role | Email | Password | Story |
 |---|---|---|---|
-| POST | `/detect` | `{ image_url }` | Detected objects, confidence, annotated image URL |
-| POST | `/embed` | `{ image_url }` | 2048-d ResNet50 feature vector |
-| POST | `/match` | `{ query_embedding, candidates[] }` | Ranked matches with combined score |
+| Student | arun@university.edu | Test@1234 | Lost a wallet; claim waiting for review |
+| Student | priya@university.edu | Test@1234 | Lost her ID card and headphones; both matched |
+| Student | rahul@university.edu | Test@1234 | Got his backpack back (completed recovery) |
+| Faculty | meera@university.edu | Test@1234 | Lost a MagSafe charger (look-alike match) |
+| Staff | security@university.edu | Test@1234 | Finder for the wallet and ID card |
+| Admin | admin@findit.campus | Admin@1234 | Lost & Found office |
 
-### Matching Algorithm
+### Tests
 
-```
-combined_score = (
-  0.50 × visual_similarity   +   # cosine(query_embedding, candidate_embedding)
-  0.20 × category_match      +   # 1.0 if same category, 0 otherwise
-  0.15 × location_proximity  +   # Gaussian decay on distance
-  0.15 × date_proximity          # Gaussian decay on days apart
-)
-```
-
----
-
-## 🎨 Design System
-
-All design tokens are defined in `frontend/src/index.css` under `@theme`:
-
-| Token | Value | Usage |
-|---|---|---|
-| `--color-ink-900` | `#0d1b2a` | Primary text, headings |
-| `--color-canvas` | `#f7f6f3` | Page background |
-| `--color-violet-600` | `#6d5bd0` | Primary accent, CTAs |
-| `--color-teal-600` | `#0d9488` | Found items, success |
-| `--color-amber-500` | `#f59e0b` | Notifications, reward |
-| `--font-display` | Manrope | Headings |
-| `--font-sans` | Plus Jakarta Sans | Body |
-
----
-
-## 📁 Project Structure
-
-```
-frontend/src/
-├── components/
-│   ├── Layout.jsx          # Navbar + Footer wrapper
-│   ├── Navbar.jsx          # Sticky nav with notification bell
-│   ├── Footer.jsx          # Dark footer
-│   ├── ItemCard.jsx        # Reusable item card
-│   └── NotificationDropdown.jsx
-├── pages/
-│   ├── LandingPage.jsx     # Hero, how-it-works, features, CTA
-│   ├── LoginPage.jsx       # Split layout auth
-│   ├── RegisterPage.jsx    # Full registration form
-│   ├── DashboardPage.jsx   # User dashboard, tabs, real-time
-│   ├── BrowsePage.jsx      # Filter, search, paginate all items
-│   ├── ItemDetailPage.jsx  # Item detail + AI results + matches
-│   ├── ReportLostPage.jsx  # 4-step wizard
-│   ├── ReportFoundPage.jsx # 4-step wizard
-│   ├── MatchDetailPage.jsx # Match comparison + claim form
-│   ├── RecoveryPage.jsx    # Recovery status + QR code
-│   ├── AdminDashboard.jsx  # Stats, moderation, user management
-│   └── ProfilePage.jsx
-├── context/
-│   ├── AuthContext.jsx     # JWT auth state
-│   └── SocketContext.jsx   # Socket.IO connection
-├── services/
-│   └── api.js              # Axios client with interceptors
-└── index.css               # Design system + component classes
-
-backend/src/
-├── models/                 # Mongoose schemas
-├── controllers/            # Business logic
-├── routes/                 # Express routers
-├── middleware/             # Auth, error handling
-└── config/                 # DB, Cloudinary
-
-ai-service/
-├── main.py                 # FastAPI app
-├── detector.py             # YOLOv8 detection
-├── embedder.py             # ResNet50 embeddings
-└── matcher.py              # Cosine similarity + ranking
+```bash
+cd backend && npm run seed -- --reset && npm run test:e2e   # 56 checks against the running stack
+cd ai-service && python calibrate.py                          # AI accuracy on the demo photos
 ```
 
----
-
-## 🔐 Security
-
-- JWT tokens stored in `localStorage`, sent via `Authorization: Bearer` header
-- Rate limiting on all auth endpoints (`express-rate-limit`)
-- Passwords hashed with bcrypt (salt rounds = 12)
-- Ownership evidence for recovery claims is never publicly visible
-- Admin-only routes protected server-side with role check
-- Cloudinary signed uploads with pre-set allowed formats
+The end-to-end test covers authorisation (who can read a match, claim, chat or review),
+socket authentication, the full claim → approve → handover-code flow, validation errors,
+moderation and password reset.
 
 ---
 
-## 🚧 Roadmap
+## API overview
 
-- [ ] Email notifications via SendGrid / Nodemailer
-- [ ] Campus map integration (Leaflet.js) with item pinning
-- [ ] Multi-image upload (up to 4 photos per report)
-- [ ] Mobile app (React Native)
-- [ ] AI auto-category suggestion pre-submit
-- [ ] WhatsApp / Telegram bot integration
+| Area | Endpoints |
+|---|---|
+| Auth | `POST /api/auth/register · login · forgot-password · reset-password/:token`, `GET /me`, `PATCH /profile · /password` |
+| Items | `/api/lost-items` and `/api/found-items`: `GET /`, `GET /my`, `GET /:id`, `POST /` (multipart), `PATCH /:id`, `DELETE /:id`, `POST /:id/reprocess`, `POST /:id/flag` |
+| Matches | `GET /api/matches/mine`, `GET /item/:type/:id`, `GET /:id`, `PATCH /:id/respond`, `GET·POST /:id/messages` |
+| Recovery | `POST /api/recovery`, `GET /mine`, `GET /:id`, `PATCH /:id/review`, `POST /:id/complete`, `POST /:id/cancel` |
+| AI | `GET /api/ai/status`, `POST /api/ai/analyze` (preview, nothing stored) |
+| Admin | `GET /api/admin/stats · pending · recoveries · users`, `PATCH /moderate/:type/:id`, `PATCH /users/:id/toggle`, `POST /ai/backfill` |
+| Public | `GET /api/meta`, `GET /api/stats/public`, `GET /api/health` |
 
----
+AI service: `POST /analyze` (multipart image), `POST /match`, `GET /health`. Docs at http://localhost:8000/docs.
 
-## 📄 License
+## Security notes
 
-MIT © 2024 FindIt. Built for campus communities.
+- JWT auth; bcrypt (12 rounds); stricter rate limit on login/register/reset.
+- Socket.IO connections must present a JWT; users are placed in their own room server-side.
+- Matches, chats and claims are visible only to the owner, the finder and admins.
+  Finders never see the claimant's email or the handover code.
+- Handover codes are compared in constant time; 5 wrong attempts lock the claim.
+- `ALLOWED_EMAIL_DOMAINS` restricts sign-up to institutional email domains.
+- Reports are never auto-deleted; past their expiry they are marked `expired`.
+- Uploaded evidence images are served from unguessable URLs but are not
+  access-controlled. Use signed Cloudinary URLs before a real deployment.
+
+## Project structure
+
+```
+ai-service/   main.py (FastAPI) · detector.py (YOLOv8) · embedder.py (CLIP) · matcher.py · calibrate.py
+backend/      server.js · src/{config,controllers,models,routes,services,utils} · seed/ · tests/e2e.js · scripts/dev-db.js
+frontend/     src/{pages,components,context,services}
+```

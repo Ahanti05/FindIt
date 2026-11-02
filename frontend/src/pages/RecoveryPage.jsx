@@ -1,182 +1,299 @@
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { ArrowLeft, CheckCircle2, Clock, MapPin, QrCode, Loader2, Shield } from 'lucide-react';
-import { recoveryApi } from '../services/api';
-import { useAuth } from '../context/AuthContext';
+import { useState, useEffect, useCallback } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { ArrowLeft, CheckCircle2, Clock, MapPin, Loader2, ShieldCheck, MessageSquare, KeyRound, XCircle, Circle } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { QRCodeCanvas } from 'qrcode.react';
-
-const STATUS_CONFIG = {
-  pending: { label: 'Pending Review', color: 'badge-amber', desc: 'Your claim is awaiting admin review.' },
-  under_review: { label: 'Under Review', color: 'badge-violet', desc: 'An administrator is reviewing your claim.' },
-  approved: { label: 'Approved', color: 'badge-green', desc: 'Your claim has been approved! Proceed to collect your item.' },
-  denied: { label: 'Denied', color: 'badge-red', desc: 'Your claim was denied. Contact the Lost & Found Office for more info.' },
-  completed: { label: 'Completed', color: 'badge-teal', desc: 'Item successfully recovered and returned.' },
-};
+import { QRCodeSVG } from 'qrcode.react';
+import { clsx } from 'clsx';
+import { recoveryApi, errorMessage } from '../services/api';
+import { HANDOVER_LABELS } from '../context/MetaContext';
+import { StatusBadge, Thumb, Modal } from '../components/ui';
 
 export default function RecoveryPage() {
   const { id } = useParams();
-  const { user } = useAuth();
   const navigate = useNavigate();
-  const [recovery, setRecovery] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
-  useEffect(() => {
-    recoveryApi.getById(id)
-      .then(({ data }) => setRecovery(data.recovery))
-      .catch(() => { toast.error('Recovery request not found'); navigate('/dashboard'); })
-      .finally(() => setLoading(false));
-  }, [id]);
+  const load = useCallback(() => recoveryApi.getById(id)
+    .then(({ data: d }) => setData(d))
+    .catch((err) => { toast.error(errorMessage(err, 'Claim not found')); navigate('/dashboard?tab=claims'); }),
+  [id, navigate]);
 
-  if (loading) {
-    return (
-      <div className="max-w-2xl mx-auto px-6 py-12 space-y-4">
-        <div className="skeleton h-4 w-24 mb-6" />
-        <div className="skeleton h-64 rounded-2xl" />
-      </div>
-    );
+  useEffect(() => { load(); }, [load]);
+
+  if (!data) {
+    return <div className="max-w-3xl mx-auto px-6 py-10 space-y-4"><div className="skeleton h-24 rounded-xl w-full" /><div className="skeleton h-64 rounded-xl w-full" /></div>;
   }
 
-  if (!recovery) return null;
+  const { recovery, role } = data;
+  const { status, lostItem, foundItem } = recovery;
+  const reviewer = role === 'finder' || role === 'admin';
 
-  const { status, lostItem, foundItem, ownershipStatement, qrCode, handoverLocation, handoverScheduled, reviewNote } = recovery;
-  const statusInfo = STATUS_CONFIG[status] || STATUS_CONFIG.pending;
+  const cancel = async () => {
+    try {
+      await recoveryApi.cancel(id);
+      toast.success('Claim withdrawn');
+      setConfirmCancel(false);
+      load();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
 
   return (
-    <div className="max-w-2xl mx-auto px-4 sm:px-6 py-10">
-      <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-sm text-[var(--color-ink-500)] hover:text-[var(--color-ink-900)] mb-6 group">
-        <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" /> Back
+    <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
+      <button onClick={() => navigate(-1)} className="flex items-center gap-1.5 text-sm text-[var(--color-ink-500)] hover:text-[var(--color-ink-900)] mb-5">
+        <ArrowLeft className="w-4 h-4" /> Back
       </button>
 
-      <div className="flex items-start justify-between mb-6">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
-          <h1 className="font-display font-bold text-2xl text-[var(--color-ink-900)]">Recovery Request</h1>
-          <p className="text-sm text-[var(--color-ink-500)] mt-1">Track your item recovery status</p>
+          <p className="text-sm font-semibold text-[var(--color-violet-600)]">Ownership claim</p>
+          <h1 className="font-display font-bold text-2xl text-[var(--color-ink-900)]">{foundItem?.title}</h1>
+          <p className="text-sm text-[var(--color-ink-500)] mt-1">
+            {role === 'claimant' ? 'Your claim' : `Claimed by ${recovery.claimant?.name}`} · submitted {format(new Date(recovery.createdAt), 'd MMM yyyy, HH:mm')}
+          </p>
         </div>
-        <span className={`badge text-sm py-1.5 px-3 ${statusInfo.color}`}>{statusInfo.label}</span>
+        <StatusBadge status={status} className="text-sm py-1 px-3" />
       </div>
 
-      {/* Status card */}
-      <div className={`card border p-5 mb-5 ${
-        status === 'approved' || status === 'completed'
-          ? 'border-[var(--color-green-100)] bg-[var(--color-green-100)]'
-          : status === 'denied'
-          ? 'border-[var(--color-red-100)] bg-[var(--color-red-100)]'
-          : 'border-[var(--color-violet-100)] bg-[var(--color-violet-50)]'
-      }`}>
-        <div className="flex items-center gap-3">
-          {status === 'approved' || status === 'completed' ? (
-            <div className="animate-check-pop">
-              <CheckCircle2 className="w-6 h-6 text-[#15803d]" />
-            </div>
-          ) : (
-            <Clock className="w-6 h-6 text-[var(--color-violet-600)]" />
-          )}
-          <div>
-            <p className="font-bold text-sm text-[var(--color-ink-900)]">{statusInfo.label}</p>
-            <p className="text-xs text-[var(--color-ink-600)] mt-0.5">{statusInfo.desc}</p>
-          </div>
-        </div>
-        {reviewNote && (
-          <div className="mt-3 pt-3 border-t border-black/10">
-            <p className="text-xs font-semibold text-[var(--color-ink-600)]">Admin note:</p>
-            <p className="text-sm text-[var(--color-ink-800)] mt-0.5">{reviewNote}</p>
-          </div>
-        )}
-      </div>
+      <Timeline recovery={recovery} />
+
+      {/* Role-specific next step */}
+      {role === 'claimant' && status === 'pending' && (
+        <Panel tone="violet" icon={Clock} title="Waiting for verification">
+          The finder or the Lost &amp; Found office is checking your description against the item. You'll be notified as soon as they decide.
+        </Panel>
+      )}
+      {role === 'claimant' && status === 'approved' && <HandoverPass recovery={recovery} />}
+      {reviewer && status === 'pending' && <ReviewForm recovery={recovery} onDone={load} />}
+      {reviewer && status === 'approved' && <CompleteForm recovery={recovery} onDone={load} />}
+      {status === 'completed' && (
+        <Panel tone="green" icon={CheckCircle2} title="Item returned">
+          Handed over on {format(new Date(recovery.handoverCompletedAt), 'd MMM yyyy, HH:mm')}{recovery.handoverLocation ? ` at ${recovery.handoverLocation}` : ''}. Both reports are closed.
+        </Panel>
+      )}
+      {status === 'denied' && (
+        <Panel tone="red" icon={XCircle} title="Claim not approved">
+          {recovery.reviewNote || 'The details did not match the item.'} {role === 'claimant' && 'If you think this is a mistake, contact the Lost & Found office.'}
+        </Panel>
+      )}
+      {status === 'cancelled' && <Panel tone="neutral" icon={XCircle} title="Claim withdrawn">The claimant withdrew this claim and the item is listed as found again.</Panel>}
 
       {/* Items */}
-      <div className="grid grid-cols-2 gap-4 mb-5">
-        {[{ label: 'Lost Item', item: lostItem }, { label: 'Found Item', item: foundItem }].map(({ label, item }) => (
-          <div key={label} className="card border border-[var(--color-ink-100)] p-4">
-            <p className="text-xs font-bold text-[var(--color-ink-500)] uppercase mb-2">{label}</p>
-            {item?.image?.url && (
-              <img src={item.image.url} alt="" className="h-24 w-full object-cover rounded-lg mb-2" />
-            )}
-            <p className="text-sm font-semibold text-[var(--color-ink-900)] truncate">{item?.title}</p>
-            <span className="badge badge-neutral text-[10px] mt-1">{item?.category}</span>
-          </div>
+      <div className="grid sm:grid-cols-2 gap-4 my-5">
+        {[['Lost report', lostItem, 'lost'], ['Found report', foundItem, 'found']].map(([label, item, type]) => item && (
+          <Link key={label} to={`/items/${type}/${item._id}`} className="card border border-[var(--color-ink-100)] p-4 flex items-center gap-3 hover:border-[var(--color-ink-300)]">
+            <Thumb item={item} />
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold text-[var(--color-ink-500)] uppercase">{label}</p>
+              <p className="text-sm font-semibold text-[var(--color-ink-900)] truncate">{item.title}</p>
+              <p className="text-xs text-[var(--color-ink-500)]">{item.category}</p>
+            </div>
+          </Link>
         ))}
       </div>
 
-      {/* Ownership statement */}
-      <div className="card border border-[var(--color-ink-100)] p-5 mb-5">
-        <div className="flex items-center gap-2 mb-3">
-          <Shield className="w-4 h-4 text-[var(--color-violet-600)]" />
-          <p className="text-sm font-bold text-[var(--color-ink-900)]">Ownership Statement</p>
-        </div>
-        <p className="text-sm text-[var(--color-ink-600)] leading-relaxed italic">"{ownershipStatement}"</p>
-      </div>
-
-      {/* Handover info */}
-      {(handoverLocation || handoverScheduled) && (
-        <div className="card border border-[var(--color-teal-100)] bg-[var(--color-teal-50)] p-5 mb-5">
-          <p className="text-sm font-bold text-[var(--color-teal-600)] mb-3">Handover Details</p>
-          {handoverLocation && (
-            <div className="flex items-center gap-2 text-sm text-[var(--color-ink-700)] mb-1.5">
-              <MapPin className="w-4 h-4 text-[var(--color-teal-600)]" />
-              {handoverLocation}
-            </div>
-          )}
-          {handoverScheduled && (
-            <div className="flex items-center gap-2 text-sm text-[var(--color-ink-700)]">
-              <Clock className="w-4 h-4 text-[var(--color-teal-600)]" />
-              {format(new Date(handoverScheduled), 'PPpp')}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* QR Code */}
-      {status === 'approved' && qrCode?.data && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-          className="card border border-[var(--color-green-100)] p-6 text-center mb-5"
-        >
-          <div className="w-10 h-10 rounded-full bg-[var(--color-green-100)] flex items-center justify-center mx-auto mb-3 animate-check-pop">
-            <QrCode className="w-5 h-5 text-[#15803d]" />
-          </div>
-          <p className="font-display font-bold text-[var(--color-ink-900)] mb-1">Your Recovery QR Code</p>
-          <p className="text-xs text-[var(--color-ink-500)] mb-5">Show this at the handover location. It contains your verified recovery information.</p>
-          <div className="flex justify-center">
-            <div className="p-4 bg-white rounded-xl shadow-sm border border-[var(--color-ink-100)] inline-block">
-              <QRCodeCanvas value={qrCode.data} size={160} level="H" />
-            </div>
-          </div>
-          <p className="text-[11px] text-[var(--color-ink-300)] mt-4">
-            Recovery ID: {recovery._id}
-          </p>
-        </motion.div>
-      )}
-
-      {/* Timeline */}
+      {/* Evidence */}
       <div className="card border border-[var(--color-ink-100)] p-5">
-        <p className="text-sm font-bold text-[var(--color-ink-900)] mb-4">Recovery Timeline</p>
-        <div className="space-y-3">
-          {[
-            { label: 'Claim submitted', date: recovery.createdAt, done: true },
-            { label: 'Under review', date: recovery.reviewedAt, done: !!recovery.reviewedAt },
-            { label: 'Decision made', date: recovery.reviewedAt, done: ['approved', 'denied'].includes(status) },
-            { label: 'Item collected', date: recovery.handoverCompletedAt, done: status === 'completed' },
-          ].map((step, i) => (
-            <div key={i} className="flex items-center gap-3">
-              <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
-                step.done ? 'bg-[var(--color-teal-500)]' : 'bg-[var(--color-ink-100)]'
-              }`}>
-                {step.done
-                  ? <CheckCircle2 className="w-3.5 h-3.5 text-white" />
-                  : <div className="w-2 h-2 rounded-full bg-[var(--color-ink-300)]" />}
-              </div>
-              <div>
-                <p className={`text-sm font-semibold ${step.done ? 'text-[var(--color-ink-900)]' : 'text-[var(--color-ink-400)]'}`}>{step.label}</p>
-                {step.date && <p className="text-xs text-[var(--color-ink-400)]">{format(new Date(step.date), 'PP')}</p>}
-              </div>
-            </div>
-          ))}
+        <p className="font-bold text-sm text-[var(--color-ink-900)] flex items-center gap-2 mb-3"><ShieldCheck className="w-4 h-4 text-[var(--color-violet-600)]" /> Proof of ownership</p>
+        <blockquote className="text-sm text-[var(--color-ink-700)] leading-relaxed border-l-2 border-[var(--color-violet-300)] pl-3 whitespace-pre-line">{recovery.ownershipStatement}</blockquote>
+        {recovery.additionalDetails && <p className="text-sm text-[var(--color-ink-600)] mt-3"><span className="font-semibold">Also: </span>{recovery.additionalDetails}</p>}
+        {reviewer && lostItem?.identifyingCharacteristics && (
+          <p className="text-xs text-[var(--color-ink-500)] mt-3 bg-[var(--color-canvas)] rounded-lg p-2.5">
+            Identifying marks in the owner's original report: <span className="font-semibold text-[var(--color-ink-700)]">{lostItem.identifyingCharacteristics}</span>
+          </p>
+        )}
+        {recovery.evidenceImages?.length > 0 && (
+          <div className="flex gap-2 mt-4">
+            {recovery.evidenceImages.map((img) => (
+              <a key={img.url} href={img.url} target="_blank" rel="noreferrer" className="w-20 h-20 rounded-lg overflow-hidden border border-[var(--color-ink-100)]">
+                <img src={img.url} alt="Evidence" className="w-full h-full object-cover" />
+              </a>
+            ))}
+          </div>
+        )}
+        {role === 'admin' && recovery.claimant?.email && (
+          <p className="text-xs text-[var(--color-ink-500)] mt-4">Claimant contact (admin only): {recovery.claimant.email}{recovery.claimant.studentId ? ` · ${recovery.claimant.studentId}` : ''}</p>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-2 mt-5">
+        <Link to={`/matches/${recovery.match}#chat`} className="btn btn-ghost btn-sm"><MessageSquare className="w-4 h-4" /> Open chat</Link>
+        {role === 'claimant' && ['pending', 'approved'].includes(status) && (
+          <button onClick={() => setConfirmCancel(true)} className="btn btn-ghost-danger btn-sm">Withdraw claim</button>
+        )}
+      </div>
+
+      <Modal open={confirmCancel} onClose={() => setConfirmCancel(false)} title="Withdraw this claim?">
+        <p className="text-sm text-[var(--color-ink-600)]">The item goes back to being listed as found. You can submit a new claim from the match page later.</p>
+        <div className="flex justify-end gap-2 mt-5">
+          <button onClick={() => setConfirmCancel(false)} className="btn btn-ghost">Keep claim</button>
+          <button onClick={cancel} className="btn btn-danger">Withdraw</button>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+function Timeline({ recovery }) {
+  const { status } = recovery;
+  const reviewed = Boolean(recovery.reviewedAt);
+  const steps = [
+    { label: 'Claim submitted', at: recovery.createdAt, done: true },
+    {
+      label: status === 'denied' ? 'Not approved' : 'Ownership verified',
+      at: recovery.reviewedAt,
+      done: reviewed,
+      by: recovery.reviewedBy?.name,
+      failed: status === 'denied',
+    },
+    { label: 'Handed over', at: recovery.handoverCompletedAt, done: status === 'completed' },
+  ];
+  return (
+    <ol className="card border border-[var(--color-ink-100)] p-5 grid sm:grid-cols-3 gap-4 mb-5">
+      {steps.map((s) => (
+        <li key={s.label} className="flex items-start gap-2.5">
+          {s.failed ? <XCircle className="w-5 h-5 text-[#b91c1c] shrink-0" />
+            : s.done ? <CheckCircle2 className="w-5 h-5 text-[var(--color-teal-600)] shrink-0" />
+              : <Circle className="w-5 h-5 text-[var(--color-ink-200)] shrink-0" />}
+          <div>
+            <p className={clsx('text-sm font-semibold', s.done ? 'text-[var(--color-ink-900)]' : 'text-[var(--color-ink-400)]')}>{s.label}</p>
+            {s.at && <p className="text-xs text-[var(--color-ink-500)]">{format(new Date(s.at), 'd MMM, HH:mm')}{s.by ? ` · ${s.by}` : ''}</p>}
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function HandoverPass({ recovery }) {
+  const code = recovery.handoverCode;
+  return (
+    <div className="card border border-[var(--color-teal-100)] p-6 grid sm:grid-cols-[auto_1fr] gap-6 items-center">
+      <div className="bg-white p-3 rounded-xl border border-[var(--color-ink-100)] justify-self-center">
+        <QRCodeSVG value={`FINDIT:${recovery._id}:${code}`} size={152} level="M" />
+      </div>
+      <div>
+        <p className="font-display font-bold text-lg text-[var(--color-ink-900)]">Your claim is approved</p>
+        <p className="text-sm text-[var(--color-ink-600)] mt-1">Show this code when you collect the item. The finder enters it to confirm the handover – don't share it before then.</p>
+        <p className="font-mono font-bold text-3xl tracking-[0.3em] text-[var(--color-ink-900)] mt-4">{code}</p>
+        <div className="mt-4 space-y-1.5 text-sm text-[var(--color-ink-700)]">
+          <p className="flex items-center gap-2"><MapPin className="w-4 h-4 text-[var(--color-teal-600)]" />{recovery.handoverLocation}</p>
+          {recovery.handoverScheduled && <p className="flex items-center gap-2"><Clock className="w-4 h-4 text-[var(--color-teal-600)]" />{format(new Date(recovery.handoverScheduled), 'EEE d MMM, HH:mm')}</p>}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReviewForm({ recovery, onDone }) {
+  const pref = recovery.foundItem?.handoverPreference;
+  const [form, setForm] = useState({
+    handoverLocation: recovery.foundItem?.currentLocation || (pref ? HANDOVER_LABELS[pref] : ''),
+    handoverScheduled: '',
+    reviewNote: '',
+  });
+  const [busy, setBusy] = useState(null);
+  const set = (f) => (e) => setForm((s) => ({ ...s, [f]: e.target.value }));
+
+  const decide = async (decision) => {
+    if (decision === 'approved' && !form.handoverLocation.trim()) { toast.error('Say where the handover will happen'); return; }
+    if (decision === 'denied' && !form.reviewNote.trim()) { toast.error('Give the claimant a short reason'); return; }
+    setBusy(decision);
+    try {
+      await recoveryApi.review(recovery._id, { decision, ...form, handoverScheduled: form.handoverScheduled || undefined });
+      toast.success(decision === 'approved' ? 'Claim approved – the owner has their handover code' : 'Claim declined');
+      onDone();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="card border border-[var(--color-violet-200)] p-5 space-y-4">
+      <div>
+        <p className="font-display font-bold text-[var(--color-ink-900)]">Review this claim</p>
+        <p className="text-sm text-[var(--color-ink-500)] mt-1">Compare the proof below with the item you have. Approve only if the details match something not visible in the public report.</p>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div>
+          <label className="label" htmlFor="hl">Handover place</label>
+          <input id="hl" className="input" value={form.handoverLocation} onChange={set('handoverLocation')} maxLength={200} placeholder="e.g. Security desk, main gate" />
+        </div>
+        <div>
+          <label className="label" htmlFor="hs">Time <span className="font-normal text-[var(--color-ink-400)]">(optional)</span></label>
+          <input id="hs" type="datetime-local" className="input" value={form.handoverScheduled} onChange={set('handoverScheduled')} />
+        </div>
+      </div>
+      <div>
+        <label className="label" htmlFor="rn">Note to the claimant <span className="font-normal text-[var(--color-ink-400)]">(required if declining)</span></label>
+        <input id="rn" className="input" value={form.reviewNote} onChange={set('reviewNote')} maxLength={500} />
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button onClick={() => decide('approved')} disabled={Boolean(busy)} className="btn btn-teal">
+          {busy === 'approved' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Approve claim
+        </button>
+        <button onClick={() => decide('denied')} disabled={Boolean(busy)} className="btn btn-ghost-danger">Decline</button>
+      </div>
+    </div>
+  );
+}
+
+function CompleteForm({ recovery, onDone }) {
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await recoveryApi.complete(recovery._id, code);
+      toast.success('Handover confirmed. Thank you!');
+      onDone();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="card border border-[var(--color-teal-100)] p-5">
+      <p className="font-display font-bold text-[var(--color-ink-900)] flex items-center gap-2"><KeyRound className="w-4 h-4 text-[var(--color-teal-600)]" /> Confirm the handover</p>
+      <p className="text-sm text-[var(--color-ink-500)] mt-1">
+        Meet at <span className="font-semibold text-[var(--color-ink-700)]">{recovery.handoverLocation}</span>
+        {recovery.handoverScheduled ? ` on ${format(new Date(recovery.handoverScheduled), 'EEE d MMM, HH:mm')}` : ''}.
+        Ask the owner for the 6-digit code on their claim page and enter it here as you hand the item over.
+      </p>
+      <div className="flex gap-2 mt-4">
+        <input
+          className="input font-mono text-lg tracking-[0.3em] max-w-[11rem]"
+          inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000"
+          value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} aria-label="Handover code"
+        />
+        <button type="submit" disabled={busy || code.length !== 6} className="btn btn-teal">
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm handover'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function Panel({ tone, icon: Icon, title, children }) {
+  const tones = {
+    green: 'border-[var(--color-green-100)] bg-[#f0fdf4] text-[#166534]',
+    violet: 'border-[var(--color-violet-100)] bg-[var(--color-violet-50)] text-[var(--color-ink-800)]',
+    red: 'border-[var(--color-red-100)] bg-[#fef2f2] text-[#991b1b]',
+    neutral: 'border-[var(--color-ink-100)] bg-white text-[var(--color-ink-700)]',
+  };
+  return (
+    <div className={clsx('card border p-5', tones[tone])}>
+      <p className="font-bold text-sm flex items-center gap-2"><Icon className="w-4 h-4" />{title}</p>
+      <p className="text-sm mt-1.5 leading-relaxed">{children}</p>
     </div>
   );
 }
