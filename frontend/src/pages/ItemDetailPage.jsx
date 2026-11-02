@@ -7,7 +7,8 @@ import {
 import { formatDistanceToNow, format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { clsx } from 'clsx';
-import { itemsApi, matchApi, errorMessage } from '../services/api';
+import { itemsApi, matchApi, foundApi, errorMessage } from '../services/api';
+import Owl, { Coin } from '../components/Owl';
 import { useAuth } from '../context/AuthContext';
 import { useMeta, HANDOVER_LABELS } from '../context/MetaContext';
 import { Avatar, CategoryIcon, Modal, ScoreBar, StatusBadge, Thumb, pct } from '../components/ui';
@@ -21,13 +22,14 @@ export default function ItemDetailPage({ type }) {
   const api = itemsApi(type);
   const [item, setItem] = useState(null);
   const [isOwner, setIsOwner] = useState(false);
+  const [namedOnItem, setNamedOnItem] = useState(false);
   const [matches, setMatches] = useState(null);
   const [showAnnotated, setShowAnnotated] = useState(false);
   const [modal, setModal] = useState(null); // 'edit' | 'delete' | 'flag'
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => api.getById(id)
-    .then(({ data }) => { setItem(data.item); setIsOwner(data.isOwner); return data.item; })
+    .then(({ data }) => { setItem(data.item); setIsOwner(data.isOwner); setNamedOnItem(Boolean(data.namedOnItem)); return data.item; })
     .catch((err) => {
       if (err.response?.status === 404) navigate('/404', { replace: true });
       else toast.error(errorMessage(err, 'Could not load this report'));
@@ -139,7 +141,8 @@ export default function ItemDetailPage({ type }) {
                 <div className="flex flex-wrap items-center gap-2 mb-2">
                   <span className={clsx('badge', type === 'lost' ? 'badge-red' : 'badge-teal')}>{type === 'lost' ? 'Lost' : 'Found'}</span>
                   <StatusBadge status={item.status} />
-                  {item.rewardOffered && <span className="badge badge-amber"><Gift className="w-3 h-3" /> Reward</span>}
+                  {item.rewardCoins > 0 && <span className="badge badge-amber"><Coin size={13} /> {item.rewardCoins} coin reward</span>}
+                  {item.rewardOffered && !item.rewardCoins && <span className="badge badge-amber"><Gift className="w-3 h-3" /> Reward</span>}
                 </div>
                 <h1 className="font-display font-bold text-2xl text-[var(--color-ink-900)] break-words">{item.title}</h1>
                 <p className="text-sm text-[var(--color-ink-500)] flex items-center gap-1.5 mt-1">
@@ -171,7 +174,11 @@ export default function ItemDetailPage({ type }) {
               )}
               {item.colors?.length > 0 && <Info icon={Package} label="Colours">{item.colors.join(', ')}</Info>}
               {type === 'lost' && item.identifyingCharacteristics && <Info icon={AlertTriangle} label="Identifying marks">{item.identifyingCharacteristics}</Info>}
-              {type === 'lost' && item.rewardOffered && <Info icon={Gift} label="Reward">{item.rewardDescription || 'Offered'}</Info>}
+              {type === 'lost' && item.rewardOffered && (
+                <Info icon={Gift} label="Reward">
+                  {[item.rewardCoins ? `${item.rewardCoins} FindIt coins` : '', item.rewardDescription].filter(Boolean).join(' + ') || 'Offered'}
+                </Info>
+              )}
               {type === 'found' && item.currentLocation && <Info icon={Package} label="Item is now">{item.currentLocation}</Info>}
               {type === 'found' && <Info icon={Hand} label="Collection">{HANDOVER_LABELS[item.handoverPreference]}</Info>}
             </dl>
@@ -317,12 +324,18 @@ export default function ItemDetailPage({ type }) {
                 </>
               ) : (
                 <>
+                  {namedOnItem && (
+                    <div className="flex items-center gap-3 mb-4">
+                      <Owl mood="search" size={56} />
+                      <p className="text-sm font-semibold text-[var(--color-ink-900)]">The finder says your name is on this item.</p>
+                    </div>
+                  )}
                   <p className="font-bold text-sm text-[var(--color-ink-900)] mb-1">Is this yours?</p>
                   <p className="text-xs text-[var(--color-ink-600)] mb-4 leading-relaxed">
-                    Report what you lost with a photo. If it matches this item you'll get a match link where you can chat with the finder and submit proof of ownership.
+                    Tell the finder. A private chat opens and you can submit proof of ownership – they hand it over once it's verified.
                   </p>
-                  <Link to="/report/lost" className="btn btn-primary w-full">Report my lost item</Link>
-                  <Link to="/dashboard?tab=matches" className="block text-center text-xs font-semibold text-[var(--color-violet-600)] mt-3 hover:underline">Already reported? See your matches</Link>
+                  <button onClick={() => setModal('mine')} className="btn btn-primary w-full">This is mine</button>
+                  <Link to="/dashboard?tab=matches" className="block text-center text-xs font-semibold text-[var(--color-violet-600)] mt-3 hover:underline">Already reported it lost? See your matches</Link>
                 </>
               )}
             </div>
@@ -355,6 +368,7 @@ export default function ItemDetailPage({ type }) {
       </Modal>
 
       <FlagModal open={modal === 'flag'} onClose={() => setModal(null)} api={api} id={id} />
+      <MineModal open={modal === 'mine'} onClose={() => setModal(null)} item={item} onDone={(matchId) => navigate(`/matches/${matchId}`)} />
     </div>
   );
 }
@@ -458,6 +472,40 @@ function FlagModal({ open, onClose, api, id }) {
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className="btn btn-ghost">Cancel</button>
           <button type="submit" disabled={sending || !reason.trim()} className="btn btn-danger">{sending ? 'Sending...' : 'Send report'}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function MineModal({ open, onClose, item, onDone }) {
+  const [description, setDescription] = useState('');
+  const [sending, setSending] = useState(false);
+  const send = async (e) => {
+    e.preventDefault();
+    setSending(true);
+    try {
+      const { data } = await foundApi.claimMine(item._id, description);
+      toast.success('The finder has been told. Chat is open.');
+      onDone(data.matchId);
+    } catch (err) {
+      toast.error(errorMessage(err));
+      setSending(false);
+    }
+  };
+  return (
+    <Modal open={open} onClose={onClose} title={`Is "${item?.title}" yours?`}>
+      <form onSubmit={send} className="space-y-4">
+        <p className="text-sm text-[var(--color-ink-600)]">
+          We'll open a private chat with the finder and create a lost report for you. You'll prove ownership in the next step – don't post private details here.
+        </p>
+        <div>
+          <label className="label" htmlFor="mine-desc">When and where did you lose it? <span className="font-normal text-[var(--color-ink-400)]">(optional)</span></label>
+          <textarea id="mine-desc" className="input min-h-[80px]" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={1000} />
+        </div>
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="btn btn-ghost">Cancel</button>
+          <button type="submit" disabled={sending} className="btn btn-primary">{sending ? 'Opening chat...' : 'Yes, it is mine'}</button>
         </div>
       </form>
     </Modal>

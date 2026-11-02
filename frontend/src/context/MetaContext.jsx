@@ -12,6 +12,9 @@ const FALLBACK = {
   buildings: [],
   handoverOptions: ['lost-found-office', 'security-desk', 'in-person', 'other'],
   demoMode: false,
+  coinRules: { WELCOME: 50, FOUND_REPORT: 5, FOUND_REPORT_DAILY_CAP: 3, ITEM_RETURNED: 50, RECOVERY_CLOSED: 10 },
+  rewardOptions: [0, 10, 25, 50, 100],
+  lanAddresses: [],
 };
 
 const MetaContext = createContext(FALLBACK);

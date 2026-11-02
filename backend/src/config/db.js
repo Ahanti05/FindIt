@@ -31,12 +31,16 @@ const dropLegacyTtlIndex = async () => {
 
 // Marks reports past their expiry date as "expired" instead of deleting them.
 const expireOldReports = async () => {
+  const { refundReward } = require('../services/coinService');
   const now = new Date();
-  const [lost, found] = await Promise.all([
-    LostItem.updateMany({ status: 'active', expiresAt: { $lt: now } }, { status: 'expired' }),
-    FoundItem.updateMany({ status: 'active', expiresAt: { $lt: now } }, { status: 'expired' }),
-  ]);
-  const total = lost.modifiedCount + found.modifiedCount;
+  const expiring = await LostItem.find({ status: 'active', expiresAt: { $lt: now } });
+  for (const item of expiring) {
+    item.status = 'expired';
+    await item.save();
+    await refundReward(item);
+  }
+  const found = await FoundItem.updateMany({ status: 'active', expiresAt: { $lt: now } }, { status: 'expired' });
+  const total = expiring.length + found.modifiedCount;
   if (total) console.log(`Marked ${total} report(s) as expired`);
 };
 

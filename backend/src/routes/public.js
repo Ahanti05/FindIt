@@ -4,7 +4,15 @@ const LostItem = require('../models/LostItem');
 const FoundItem = require('../models/FoundItem');
 const Match = require('../models/Match');
 const RecoveryRequest = require('../models/RecoveryRequest');
+const os = require('os');
 const { CATEGORIES, BUILDINGS, HANDOVER_OPTIONS } = require('../config/constants');
+const { COINS, REWARD_OPTIONS } = require('../services/coinService');
+
+// IPv4 addresses of this machine on the local network, so the "get it on
+// your phone" QR code can point a phone on the same Wi-Fi at the dev server.
+const lanAddresses = () => Object.values(os.networkInterfaces()).flat()
+  .filter((i) => i && i.family === 'IPv4' && !i.internal)
+  .map((i) => i.address);
 
 // Lists the frontend needs for its forms.
 router.get('/meta', (req, res) => {
@@ -15,6 +23,9 @@ router.get('/meta', (req, res) => {
     handoverOptions: HANDOVER_OPTIONS,
     // Lets the login page offer the seeded demo accounts during a presentation.
     demoMode: process.env.DEMO_MODE === 'true',
+    coinRules: COINS,
+    rewardOptions: REWARD_OPTIONS,
+    lanAddresses: process.env.NODE_ENV === 'production' ? [] : lanAddresses(),
   });
 });
 

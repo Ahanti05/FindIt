@@ -12,12 +12,26 @@ import { useAuth } from '../context/AuthContext';
 import { useSocketEvent } from '../context/SocketContext';
 import { Avatar, ScoreBar, StatusBadge, pct } from '../components/ui';
 
-const SIGNALS = [
-  ['visual', 'Looks alike', 'CLIP similarity of the two photos'],
-  ['category', 'Same category', 'Both reports use the same category'],
-  ['location', 'Same place', 'Lost and found in the same building'],
-  ['date', 'Close in time', 'Found soon after it was lost'],
-];
+const SIGNALS = {
+  photo: [
+    ['visual', 'Looks alike', 'CLIP similarity of the two photos'],
+    ['category', 'Same category', 'Both reports use the same category'],
+    ['location', 'Same place', 'Lost and found in the same building'],
+    ['date', 'Close in time', 'Found soon after it was lost'],
+  ],
+  details: [
+    ['text', 'Described alike', 'Words shared by the two reports'],
+    ['category', 'Same category', 'Both reports use the same category'],
+    ['location', 'Same place', 'Lost and found in the same building'],
+    ['date', 'Close in time', 'Found soon after it was lost'],
+  ],
+};
+
+const SOURCE = {
+  photo: 'Suggested by FindIt AI from the photos',
+  details: 'Suggested by FindIt from the report details',
+  owner: 'The owner recognised this item',
+};
 
 export default function MatchDetailPage() {
   const { matchId } = useParams();
@@ -79,19 +93,20 @@ export default function MatchDetailPage() {
       <div className="card border border-[var(--color-ink-100)] p-5 sm:p-6 mb-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-semibold text-[var(--color-violet-600)] flex items-center gap-1.5"><Sparkles className="w-4 h-4" /> Suggested by FindIt AI</p>
+            <p className="text-sm font-semibold text-[var(--color-violet-600)] flex items-center gap-1.5"><Sparkles className="w-4 h-4" /> {SOURCE[match.method || 'photo']}</p>
             <h1 className="font-display font-bold text-xl text-[var(--color-ink-900)] mt-1">
               {role === 'finder' ? 'Someone may have lost the item you found' : role === 'owner' ? 'This found item may be yours' : 'Match between two reports'}
             </h1>
             <p className="text-xs text-[var(--color-ink-500)] mt-1">Suggested {formatDistanceToNow(new Date(match.createdAt), { addSuffix: true })}</p>
           </div>
           <div className="text-right">
-            <p className="font-display font-extrabold text-3xl text-[var(--color-ink-900)]">{pct(match.combinedScore)}</p>
+            {match.method !== 'owner' && <p className="font-display font-extrabold text-3xl text-[var(--color-ink-900)]">{pct(match.combinedScore)}</p>}
             <StatusBadge status={match.status} />
           </div>
         </div>
+        {match.method !== 'owner' && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-5 pt-5 border-t border-[var(--color-ink-100)]">
-          {SIGNALS.map(([key, label, hint]) => (
+          {SIGNALS[match.method === 'details' ? 'details' : 'photo'].map(([key, label, hint]) => (
             <div key={key} title={hint}>
               <div className="flex justify-between text-xs mb-1.5">
                 <span className="font-semibold text-[var(--color-ink-700)]">{label}</span>
@@ -101,8 +116,11 @@ export default function MatchDetailPage() {
             </div>
           ))}
         </div>
+        )}
         <p className="text-xs text-[var(--color-ink-400)] mt-4">
-          A high score means the reports look alike – not that they are the same item. Ownership is always checked before handover.
+          {match.method === 'owner'
+            ? 'The owner opened this from the found report. They still prove ownership before anything is handed over.'
+            : 'A high score means the reports look alike – not that they are the same item. Ownership is always checked before handover.'}
         </p>
       </div>
 

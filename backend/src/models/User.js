@@ -57,6 +57,8 @@ const userSchema = new mongoose.Schema(
     passwordResetToken: { type: String, select: false },
     passwordResetExpires: { type: Date, select: false },
     lastLogin: Date,
+    // FindIt coins – see services/coinService.js. Changed only through the ledger.
+    coins: { type: Number, default: 0, min: 0 },
     notificationPreferences: {
       email: { type: Boolean, default: true },
       inApp: { type: Boolean, default: true },
@@ -99,6 +101,7 @@ userSchema.methods.toSelfJSON = function () {
     phone: this.phone,
     avatar: this.avatar,
     notificationPreferences: this.notificationPreferences,
+    coins: this.coins,
     createdAt: this.createdAt,
   };
 };

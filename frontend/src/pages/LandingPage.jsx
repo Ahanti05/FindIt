@@ -5,27 +5,33 @@ import { formatDistanceToNow } from 'date-fns';
 import { lostApi, foundApi, publicApi } from '../services/api';
 import ItemCard from '../components/ItemCard';
 import { CategoryIcon, pct } from '../components/ui';
+import Owl from '../components/Owl';
+import GetTheApp from '../components/GetTheApp';
 
 const STEPS = [
   {
     icon: Camera,
     title: 'Report with a photo',
     desc: 'Owners describe what they lost and where. Finders snap the item they picked up. Both take under a minute.',
+    to: '/report/found', cta: 'Report an item',
   },
   {
     icon: ScanLine,
     title: 'AI compares the photos',
-    desc: 'YOLOv8 finds the object, CLIP turns it into a visual fingerprint and recognises the category, then reports are ranked by look, category, place and date.',
+    desc: 'YOLOv8 finds the object, CLIP turns it into a visual fingerprint and recognises the category, then reports are ranked by look, category, place and date. No photo? The descriptions are compared instead.',
+    to: '/browse', cta: 'See reports',
   },
   {
     icon: MessageSquare,
     title: 'Both sides are alerted',
-    desc: 'When a found item looks like a lost one, the owner and the finder both get a live notification and can chat inside FindIt.',
+    desc: 'The owner and the finder both get a live notification and can chat inside FindIt. If the finder types the name on the item, its owner is told even before they notice it is gone.',
+    to: '/dashboard?tab=matches', cta: 'Your matches',
   },
   {
     icon: QrCode,
     title: 'Verified handover',
-    desc: 'The owner proves it is theirs, the finder or office approves, and a one-time handover code confirms the item changed hands.',
+    desc: 'The owner proves it is theirs, the finder or office approves, and a one-time code confirms the handover. The finder earns FindIt coins.',
+    to: '/coins', cta: 'FindIt coins',
   },
 ];
 
@@ -74,8 +80,11 @@ export default function LandingPage() {
               <Link to="/report/found" className="btn btn-teal btn-lg">I found something</Link>
               <Link to="/browse" className="btn btn-ghost btn-lg"><Search className="w-4 h-4" /> Browse reports</Link>
             </div>
+            <a href="#get-the-app" className="inline-block mt-5 text-sm font-semibold text-[var(--color-ink-500)] hover:text-[var(--color-ink-900)]">Get FindIt on your phone →</a>
           </div>
 
+          <div className="relative pt-16 lg:pt-0">
+          <Owl mood="search" size={128} bob className="absolute -top-2 right-4 lg:-top-24 lg:right-6 z-10" title="Hoot, the FindIt owl, searching with a magnifying glass" />
           <div className="card border border-[var(--color-ink-100)] p-6">
             <div className="grid grid-cols-2 gap-px bg-[var(--color-ink-100)] rounded-lg overflow-hidden">
               {[
@@ -114,6 +123,7 @@ export default function LandingPage() {
               ))}
             </ul>
           </div>
+          </div>
         </div>
       </section>
 
@@ -124,7 +134,7 @@ export default function LandingPage() {
           <p className="text-[var(--color-ink-500)] mt-1 mb-8">The same four steps whether you lost it or found it.</p>
           <ol className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
             {STEPS.map((s, i) => (
-              <li key={s.title} className="card border border-[var(--color-ink-100)] p-5">
+              <li key={s.title} className="card border border-[var(--color-ink-100)] p-5 flex flex-col">
                 <div className="flex items-center gap-3 mb-3">
                   <span className="w-9 h-9 rounded-lg bg-[var(--color-violet-50)] text-[var(--color-violet-600)] flex items-center justify-center">
                     <s.icon className="w-[18px] h-[18px]" />
@@ -133,6 +143,9 @@ export default function LandingPage() {
                 </div>
                 <h3 className="font-display font-bold text-[var(--color-ink-900)] mb-1.5">{s.title}</h3>
                 <p className="text-sm text-[var(--color-ink-500)] leading-relaxed">{s.desc}</p>
+                <Link to={s.to} className="mt-auto pt-4 text-sm font-semibold text-[var(--color-violet-600)] hover:underline inline-flex items-center gap-1">
+                  {s.cta} <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
               </li>
             ))}
           </ol>
@@ -181,6 +194,8 @@ export default function LandingPage() {
           )}
         </div>
       </section>
+
+      <GetTheApp />
     </div>
   );
 }

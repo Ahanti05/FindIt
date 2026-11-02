@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bell, Menu, X, ChevronDown, LogOut, LayoutDashboard, Settings, ShieldCheck } from 'lucide-react';
+import { Bell, Menu, X, ChevronDown, LogOut, LayoutDashboard, Settings, ShieldCheck, Coins } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { useSocket, useSocketEvent } from '../context/SocketContext';
@@ -9,6 +9,8 @@ import { notifApi } from '../services/api';
 import { clsx } from 'clsx';
 import NotificationDropdown from './NotificationDropdown';
 import { Avatar } from './ui';
+import { Coin } from './Owl';
+import { useCoins } from '../context/CoinContext';
 
 export function Logo({ dark = false }) {
   return (
@@ -24,6 +26,23 @@ const NAV_LINKS = [
   { to: '/report/lost', label: 'Report lost' },
   { to: '/report/found', label: 'Report found' },
 ];
+
+// Coin balance; counts up one coin at a time when a reward arrives.
+function CoinBadge() {
+  const { shown, lastDelta } = useCoins();
+  return (
+    <Link
+      to="/coins"
+      className="relative flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 rounded-full bg-[var(--color-amber-50)] border border-[var(--color-amber-100)] hover:border-[var(--color-amber-400)] transition-colors"
+      aria-label={`${shown} FindIt coins`}
+      title="Your FindIt coins"
+    >
+      <Coin size={18} className={lastDelta ? 'coin-bump' : undefined} key={shown} />
+      <span className="text-sm font-bold text-[#92400e] tabular-nums">{shown}</span>
+      {lastDelta?.amount > 0 && <span key={lastDelta.key} className="coin-pop">+{lastDelta.amount}</span>}
+    </Link>
+  );
+}
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -56,6 +75,7 @@ export default function Navbar() {
 
   const menuItems = user ? [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { to: '/coins', icon: Coins, label: 'FindIt coins' },
     { to: '/profile', icon: Settings, label: 'Profile' },
     ...(user.role === 'admin' ? [{ to: '/admin', icon: ShieldCheck, label: 'Admin' }] : []),
   ] : [];
@@ -86,6 +106,7 @@ export default function Navbar() {
           <div className="flex items-center gap-1.5">
             {user ? (
               <>
+                <CoinBadge />
                 <div className="relative">
                   <button
                     onClick={() => { setNotifOpen(!notifOpen); setUserMenuOpen(false); }}

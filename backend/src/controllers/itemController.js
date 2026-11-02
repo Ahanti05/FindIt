@@ -5,8 +5,10 @@ const RecoveryRequest = require('../models/RecoveryRequest');
 const { parseColors } = require('../models/itemShared');
 const { saveImage, deleteImage } = require('../services/storage');
 const { processItem, findMatches } = require('../services/aiPipeline');
-const { notifyAdmins } = require('./notificationController');
-const { HttpError, escapeRegex, isOwnerOrAdmin } = require('../utils/http');
+const { notifyAdmins, createNotification } = require('./notificationController');
+const { HttpError, escapeRegex, isOwnerOrAdmin, idOf } = require('../utils/http');
+const coins = require('../services/coinService');
+const User = require('../models/User');
 
 // Lost and found reports behave the same apart from a few field names, so one
 // controller is built per type from this config.
@@ -42,6 +44,27 @@ const parseDate = (value, label) => {
   return d;
 };
 
+// The finder typed something written on the item (email, roll number or full
+// name). If it identifies exactly one registered user, tell them directly –
+// they may not know yet that they lost it.
+const alertNamedOwner = async (found, hint, finder) => {
+  const h = hint.trim();
+  if (h.length < 3) return;
+  const rx = new RegExp(`^${escapeRegex(h)}$`, 'i');
+  const users = await User.find({ isActive: true, _id: { $ne: finder._id }, $or: [{ email: rx }, { studentId: rx }, { name: rx }] })
+    .select('_id').limit(2);
+  if (users.length !== 1) return; // no one, or ambiguous (e.g. two people with that name)
+  await FoundItem.updateOne({ _id: found._id }, { ownerNotified: users[0]._id });
+  await createNotification({
+    recipient: users[0]._id,
+    type: 'match_found',
+    title: 'Something with your name on it was found',
+    message: `${finder.name} found "${found.title}" at ${found.foundLocation?.building}. If it's yours, open it and tap "This is mine".`,
+    relatedFoundItem: found._id,
+    actionUrl: `/items/found/${found._id}`,
+  });
+};
+
 const makeItemController = (type) => {
   const { Model, locationField, dateField, createFields, updateFields, ownerStatuses } = CONFIG[type];
   const dateLabel = type === 'lost' ? 'Date lost' : 'Date found';
@@ -62,7 +85,17 @@ const makeItemController = (type) => {
       data[locationField] = { building: req.body.building, area: req.body.area };
       data[dateField] = parseDate(req.body[dateField], dateLabel);
       data.colors = parseColors(req.body.colors);
-      if (type === 'lost') data.rewardOffered = req.body.rewardOffered === 'true' || req.body.rewardOffered === true;
+      let rewardCoins = 0;
+      if (type === 'lost') {
+        data.rewardOffered = req.body.rewardOffered === 'true' || req.body.rewardOffered === true;
+        rewardCoins = parseInt(req.body.rewardCoins, 10) || 0;
+        if (!coins.REWARD_OPTIONS.includes(rewardCoins)) throw new HttpError(400, 'Choose a reward of 0, 10, 25, 50 or 100 coins');
+        if (rewardCoins > (req.user.coins || 0)) throw new HttpError(400, `You have ${req.user.coins || 0} FindIt coins – choose a smaller reward`);
+        data.rewardCoins = rewardCoins;
+        if (rewardCoins) data.rewardOffered = true;
+      } else if (req.body.ownerHint) {
+        data.ownerHint = String(req.body.ownerHint).trim().slice(0, 120);
+      }
 
       if (req.file) {
         data.image = await saveImage(req.file.buffer, { folder: 'items', mimetype: req.file.mimetype });
@@ -72,9 +105,21 @@ const makeItemController = (type) => {
 
       const item = await Model.create(data);
 
-      // Detection, embedding and matching run in the background; the item page
-      // polls the status and shows results when they land.
-      if (req.file) processItem(item._id, type, req.file.buffer);
+      if (rewardCoins) {
+        try {
+          await coins.holdReward(req.user._id, item._id, rewardCoins);
+        } catch (err) {
+          await item.deleteOne();
+          throw err;
+        }
+      }
+      if (type === 'found' && req.file) await coins.awardFoundReport(req.user._id, item._id);
+      if (type === 'found' && data.ownerHint) await alertNamedOwner(item, data.ownerHint, req.user);
+
+      // Detection, embedding and matching run in the background (on the photo,
+      // or on the report details when there is no photo); the item page polls
+      // the status and shows results when they land.
+      processItem(item._id, type, req.file?.buffer);
 
       res.status(201).json({ success: true, item });
     } catch (err) {
@@ -136,7 +181,9 @@ const makeItemController = (type) => {
 
       const json = item.toJSON();
       if (!isAdmin) delete json.moderation;
-      res.json({ success: true, item: json, isOwner });
+      const namedOnItem = Boolean(req.user && type === 'found' && idOf(item.ownerNotified) === String(req.user._id));
+      delete json.ownerNotified;
+      res.json({ success: true, item: json, isOwner, namedOnItem });
     } catch (err) {
       next(err);
     }
@@ -168,10 +215,17 @@ const makeItemController = (type) => {
         if (!ownerStatuses.includes(req.body.status) && req.user.role !== 'admin') {
           throw new HttpError(400, 'That status can only be set by the recovery process');
         }
+        const reopening = item.status !== 'active' && req.body.status === 'active';
         item.status = req.body.status;
+        // A reopened report starts without a reward (the old one was refunded).
+        if (type === 'lost' && reopening && item.rewardCoinsSettled) {
+          item.rewardCoins = 0;
+          item.rewardCoinsSettled = false;
+        }
       }
 
       await item.save();
+      if (type === 'lost' && ['archived', 'recovered'].includes(item.status)) await coins.refundReward(item);
 
       const metadataChanged = before.category !== item.category
         || before.building !== item[locationField]?.building
@@ -200,6 +254,7 @@ const makeItemController = (type) => {
       if (annotated?.startsWith('/uploads/')) {
         await deleteImage({ publicId: `local:${annotated.slice('/uploads/'.length)}` });
       }
+      if (type === 'lost') await coins.refundReward(item);
       await item.deleteOne();
       res.json({ success: true, message: 'Report deleted' });
     } catch (err) {
@@ -248,7 +303,69 @@ const makeItemController = (type) => {
     }
   };
 
-  return { create, list, getById, mine, update, remove, reprocess, flag };
+  // ── "This is mine" (found items) ─────────────────────────────────────────
+  // For an owner who never filed a lost report: creates one from the found
+  // report and an owner-confirmed match, which opens the chat and the claim
+  // form straight away. Ownership is still verified before handover.
+  const thisIsMine = async (req, res, next) => {
+    try {
+      if (type !== 'found') throw new HttpError(404, 'Not found');
+      const found = await FoundItem.findById(req.params.id);
+      if (!found || !found.isPublic) throw new HttpError(404, 'Item not found');
+      if (idOf(found.reporter) === String(req.user._id)) throw new HttpError(400, 'You reported finding this item');
+      if (found.status !== 'active') throw new HttpError(409, 'Someone already has a claim in progress for this item');
+
+      const existing = await Match.findOne({ foundItem: found._id, lostReporter: req.user._id });
+      if (existing) {
+        if (existing.status === 'rejected') throw new HttpError(400, 'This match was dismissed earlier');
+        if (existing.status === 'pending') {
+          existing.status = 'accepted';
+          existing.lostReporterResponse = 'interested';
+          await existing.save();
+        }
+        return res.json({ success: true, matchId: existing._id });
+      }
+
+      const note = String(req.body.description || '').trim().slice(0, 1000);
+      const lost = await LostItem.create({
+        reporter: req.user._id,
+        title: found.title,
+        category: found.category,
+        description: note || `Reported from the found item "${found.title}".`,
+        colors: found.colors,
+        lastSeenLocation: { building: found.foundLocation?.building, area: found.foundLocation?.area },
+        lostDate: found.foundDate,
+        aiDetection: { processingStatus: 'skipped' },
+      });
+      const match = await Match.create({
+        lostItem: lost._id,
+        foundItem: found._id,
+        lostReporter: req.user._id,
+        foundReporter: found.reporter,
+        method: 'owner',
+        generatedBy: 'manual',
+        similarityScore: 1,
+        combinedScore: 1,
+        scoreBreakdown: { category: 1, location: 1, date: 1 },
+        status: 'accepted',
+        lostReporterResponse: 'interested',
+      });
+      await createNotification({
+        recipient: found.reporter,
+        type: 'match_accepted',
+        title: 'Someone says the item you found is theirs',
+        message: `${req.user.name} says the "${found.title}" you found belongs to them. Chat is open – they still have to prove it.`,
+        relatedMatch: match._id,
+        relatedFoundItem: found._id,
+        actionUrl: `/matches/${match._id}`,
+      });
+      res.status(201).json({ success: true, matchId: match._id });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  return { create, list, getById, mine, update, remove, reprocess, flag, thisIsMine };
 };
 
-module.exports = { makeItemController };
+module.exports = { makeItemController, alertNamedOwner };

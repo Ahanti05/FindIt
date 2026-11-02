@@ -7,6 +7,9 @@ import { clsx } from 'clsx';
 import { itemsApi, aiApi, errorMessage } from '../services/api';
 import { useMeta, HANDOVER_LABELS } from '../context/MetaContext';
 import { CategoryIcon, FieldError, pct } from '../components/ui';
+import { useCoins } from '../context/CoinContext';
+import { Coin } from '../components/Owl';
+
 
 const STEPS = ['Photo', 'Details', 'Where & when', 'Review'];
 
@@ -40,7 +43,8 @@ const today = () => {
 
 export default function ReportPage({ type }) {
   const navigate = useNavigate();
-  const { categories, buildings } = useMeta();
+  const { categories, buildings, rewardOptions } = useMeta();
+  const { balance } = useCoins();
   const copy = COPY[type];
   const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -48,7 +52,7 @@ export default function ReportPage({ type }) {
 
   const [form, setForm] = useState({
     title: '', category: '', description: '', colors: '',
-    identifyingCharacteristics: '', rewardOffered: false, rewardDescription: '',
+    identifyingCharacteristics: '', rewardCoins: 0, rewardDescription: '', ownerHint: '',
     building: '', area: '', date: today(), time: '',
     currentLocation: '', handoverPreference: 'lost-found-office',
   });
@@ -132,12 +136,14 @@ export default function ReportPage({ type }) {
       if (type === 'lost') {
         Object.assign(fields, {
           lostDate: form.date, lostTimeApprox: form.time, identifyingCharacteristics: form.identifyingCharacteristics,
-          rewardOffered: form.rewardOffered, rewardDescription: form.rewardOffered ? form.rewardDescription : '',
+          rewardCoins: form.rewardCoins, rewardDescription: form.rewardDescription,
+          rewardOffered: Boolean(form.rewardCoins || form.rewardDescription.trim()),
         });
       } else {
         Object.assign(fields, {
           foundDate: form.date, foundTime: form.time,
           currentLocation: form.currentLocation, handoverPreference: form.handoverPreference,
+          ownerHint: form.ownerHint.trim(),
         });
       }
       Object.entries(fields).forEach(([k, v]) => { if (v !== '' && v !== undefined) fd.append(k, v); });
@@ -284,6 +290,13 @@ export default function ReportPage({ type }) {
                 value={form.description} onChange={set('description')} />
               {type === 'found' && <p className="text-[11px] text-[var(--color-ink-400)] mt-1">Leave out details only the owner would know (like what is inside). They will use them to prove ownership.</p>}
             </div>
+            {type === 'found' && (
+              <div>
+                <label className="label" htmlFor="ownerHint">Name, roll number or email written on it <span className="font-normal text-[var(--color-ink-400)]">(optional, kept private)</span></label>
+                <input id="ownerHint" className="input" placeholder="e.g. 21EE045 or Priya Patel" value={form.ownerHint} onChange={set('ownerHint')} maxLength={120} />
+                <p className="text-[11px] text-[var(--color-ink-400)] mt-1">If it belongs to someone on FindIt, we tell them right away – even if they haven't noticed it's missing.</p>
+              </div>
+            )}
             <div>
               <label className="label" htmlFor="colors">Colours <span className="font-normal text-[var(--color-ink-400)]">(comma separated)</span></label>
               <input id="colors" className="input" placeholder="e.g. Black, Silver" value={form.colors} onChange={set('colors')} />
@@ -294,13 +307,31 @@ export default function ReportPage({ type }) {
                   <label className="label" htmlFor="ident">Identifying marks <span className="font-normal text-[var(--color-ink-400)]">(optional)</span></label>
                   <input id="ident" className="input" placeholder="Stickers, scratches, engraving..." value={form.identifyingCharacteristics} onChange={set('identifyingCharacteristics')} maxLength={500} />
                 </div>
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" className="w-4 h-4 accent-[var(--color-violet-600)]" checked={form.rewardOffered} onChange={set('rewardOffered')} />
-                  <span className="text-sm font-semibold text-[var(--color-ink-700)]">I'm offering a reward</span>
-                </label>
-                {form.rewardOffered && (
-                  <input className="input" placeholder="What are you offering?" value={form.rewardDescription} onChange={set('rewardDescription')} maxLength={200} />
-                )}
+                <fieldset>
+                  <legend className="label flex items-center gap-1.5">
+                    Reward in FindIt coins
+                    <span className="font-normal text-[var(--color-ink-400)]">– you have {balance}</span>
+                  </legend>
+                  <div className="flex flex-wrap gap-2">
+                    {rewardOptions.map((c) => (
+                      <button
+                        key={c} type="button" disabled={c > balance}
+                        onClick={() => setForm((f) => ({ ...f, rewardCoins: c }))}
+                        className={clsx(
+                          'flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+                          form.rewardCoins === c ? 'border-[var(--color-amber-500)] bg-[var(--color-amber-50)] text-[#92400e]' : 'border-[var(--color-ink-100)] text-[var(--color-ink-700)] hover:border-[var(--color-ink-300)]'
+                        )}
+                      >
+                        {c === 0 ? 'No coins' : <><Coin size={16} />{c}</>}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-[var(--color-ink-400)] mt-1.5">The coins are held now and go to the finder when you get the item back. If you close the report, they come back to you.</p>
+                </fieldset>
+                <div>
+                  <label className="label" htmlFor="rewardDescription">Anything else you're offering <span className="font-normal text-[var(--color-ink-400)]">(optional)</span></label>
+                  <input id="rewardDescription" className="input" placeholder="e.g. Coffee at the canteen" value={form.rewardDescription} onChange={set('rewardDescription')} maxLength={200} />
+                </div>
               </>
             )}
           </div>
@@ -375,8 +406,9 @@ export default function ReportPage({ type }) {
                 [type === 'lost' ? 'Last seen' : 'Found at', [form.building, form.area].filter(Boolean).join(' – ')],
                 [copy.dateLabel, [form.date, form.time].filter(Boolean).join(', ')],
                 ...(type === 'lost'
-                  ? [['Identifying marks', form.identifyingCharacteristics], ['Reward', form.rewardOffered ? form.rewardDescription || 'Yes' : '']]
-                  : [['Item is now', form.currentLocation], ['Collection', HANDOVER_LABELS[form.handoverPreference]]]),
+                  ? [['Identifying marks', form.identifyingCharacteristics],
+                    ['Reward', [form.rewardCoins ? `${form.rewardCoins} FindIt coins` : '', form.rewardDescription].filter(Boolean).join(' + ')]]
+                  : [['Item is now', form.currentLocation], ['Collection', HANDOVER_LABELS[form.handoverPreference]], ['Name on item', form.ownerHint ? `${form.ownerHint} (private)` : '']]),
               ].filter(([, v]) => v).map(([k, v]) => (
                 <div key={k} className="contents">
                   <dt className="text-xs font-bold text-[var(--color-ink-500)] uppercase tracking-wide pt-0.5">{k}</dt>

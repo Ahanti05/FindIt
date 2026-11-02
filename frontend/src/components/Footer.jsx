@@ -25,6 +25,8 @@ export default function Footer() {
             <p className="text-xs font-bold text-white uppercase tracking-wider mb-3">Project</p>
             <ul className="space-y-2 text-sm">
               <li><Link to="/#how-it-works" className="hover:text-white transition-colors">How matching works</Link></li>
+              <li><Link to="/#get-the-app" className="hover:text-white transition-colors">Get the app</Link></li>
+              <li><Link to="/coins" className="hover:text-white transition-colors">FindIt coins</Link></li>
               <li><a href="https://github.com/Ahanti05/FindIt" target="_blank" rel="noreferrer" className="hover:text-white transition-colors">Source code</a></li>
             </ul>
           </div>

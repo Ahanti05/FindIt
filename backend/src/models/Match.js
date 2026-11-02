@@ -11,8 +11,13 @@ const matchSchema = new mongoose.Schema(
     similarityScore: { type: Number, required: true, min: 0, max: 1 }, // calibrated visual score
     cosine: Number, // raw CLIP cosine, kept for analysis
     combinedScore: { type: Number, min: 0, max: 1, index: true },
+    // photo   – compared by the AI service
+    // details – no photo (or AI offline): compared on category, words, place, date
+    // owner   – the owner said "this is mine" directly on a found report
+    method: { type: String, enum: ['photo', 'details', 'owner'], default: 'photo' },
     scoreBreakdown: {
       visual: Number,
+      text: Number,
       category: Number,
       location: Number,
       date: Number,

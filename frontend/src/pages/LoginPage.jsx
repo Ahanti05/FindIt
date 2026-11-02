@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useMeta } from '../context/MetaContext';
 import { errorMessage } from '../services/api';
 import { FieldError } from '../components/ui';
+import Owl from '../components/Owl';
 
 // Accounts created by backend/seed/seed.js – only offered when the backend runs with DEMO_MODE=true.
 const DEMO_ACCOUNTS = [
@@ -48,8 +49,13 @@ export default function LoginPage() {
   return (
     <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center p-6">
       <div className="w-full max-w-md">
-        <h1 className="font-display font-bold text-2xl text-[var(--color-ink-900)]">Sign in to FindIt</h1>
-        <p className="text-sm text-[var(--color-ink-500)] mt-1 mb-6">Use your campus email.</p>
+        <div className="flex items-center gap-4 mb-6">
+          <Owl mood="happy" size={72} />
+          <div>
+            <h1 className="font-display font-bold text-2xl text-[var(--color-ink-900)]">Sign in to FindIt</h1>
+            <p className="text-sm text-[var(--color-ink-500)] mt-1">Use your campus email.</p>
+          </div>
+        </div>
 
         <form onSubmit={submit} className="card border border-[var(--color-ink-100)] p-6 space-y-4" noValidate>
           <div>

@@ -23,6 +23,39 @@ B.Tech CSE design-thinking project – Ahanti K Kadam (4001), Maruf F Nadaf (403
 | **Claim** | Owner submits proof only they would know, with optional photos. Only the finder and admins can see it. |
 | **Verify** | The finder or the Lost & Found office approves or declines and sets the handover place. |
 | **Hand over** | The owner gets a 6-digit code + QR. The finder enters it; reports close as recovered/returned. |
+| **Reward** | The finder earns **FindIt coins** (plus any coins the owner promised), counted up one by one. |
+
+### When there is no photo, no AI, or no lost report
+
+- **No photo, or AI service down** – reports are still matched on their details (same category, shared
+  words, building, date) and both sides are alerted. Photos that could not be analysed are picked up
+  automatically when the AI service is back (every 2 minutes, or "Run AI on pending items" in admin).
+- **Owner never reported it** – the finder can type the name, roll number or email written on the item
+  (kept private). If it identifies one registered user, that person is told right away.
+- **"This is mine"** – on any found item, the owner can say so directly. That creates their lost report and
+  an owner-confirmed match, so the chat and the claim form open immediately. Ownership is still verified.
+
+### FindIt coins
+
+| Action | Coins |
+|---|---|
+| New account | +50 |
+| Report a found item with a photo (max 3 a day) | +5 |
+| Return an item (handover confirmed with the code) | +50 to the finder |
+| Owner's promised reward (0/10/25/50/100) | held from the owner when they report, paid to the finder on handover, refunded if the report is archived, deleted or expires |
+| Get your own item back | +10 to the owner |
+
+Every change is a row in a ledger (`CoinTransaction`), so balances can always be explained. The `/coins`
+page shows the balance, history and a top-finders leaderboard.
+
+### On your phone
+
+FindIt is an installable web app (manifest + service worker). The landing page's "Get FindIt on your
+phone" section shows a QR code – on a dev machine it points at the computer's Wi-Fi address so a phone on
+the same network can open it – and an **Install** button where the browser supports it. Native App
+Store / Play Store apps are not built yet.
+
+Hoot, the white owl, is FindIt's mascot (original SVG artwork in `frontend/src/components/Owl.jsx`).
 
 Also: browse and search with filters, flag a listing, edit/archive/delete your reports, re-run AI,
 profile and password change, password reset, admin dashboard (stats, AI status, claims queue,
@@ -53,7 +86,7 @@ combined = 0.60 × visual + 0.20 × category + 0.10 × location + 0.10 × date
 - **location** – 1 same building, 0 different, 0.5 unknown
 - **date** – Gaussian decay on the gap (σ = 5 days); a found date before the lost date scores 0
 
-Matches ≥ 0.45 are stored and shown; ≥ 0.70 trigger notifications.
+Matches ≥ 0.45 are stored and shown; ≥ 0.60 trigger notifications to both sides.
 
 ### Measured on the demo photos (`ai-service/calibrate.py`)
 
@@ -113,7 +146,7 @@ at http://localhost:5000.
 |---|---|---|---|
 | Student | arun@university.edu | Test@1234 | Lost a wallet; claim waiting for review |
 | Student | priya@university.edu | Test@1234 | Lost her ID card and headphones; both matched |
-| Student | rahul@university.edu | Test@1234 | Got his backpack back (completed recovery) |
+| Student | rahul@university.edu | Test@1234 | Got his backpack back; a watch with his name on it was found |
 | Faculty | meera@university.edu | Test@1234 | Lost a MagSafe charger (look-alike match) |
 | Staff | security@university.edu | Test@1234 | Finder for the wallet and ID card |
 | Admin | admin@findit.campus | Admin@1234 | Lost & Found office |
@@ -121,7 +154,7 @@ at http://localhost:5000.
 ### Tests
 
 ```bash
-cd backend && npm run seed -- --reset && npm run test:e2e   # 56 checks against the running stack
+cd backend && npm run seed -- --reset && npm run test:e2e   # 81 checks against the running stack
 cd ai-service && python calibrate.py                          # AI accuracy on the demo photos
 ```
 

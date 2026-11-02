@@ -61,8 +61,9 @@ async function main() {
   console.log('\nAuthentication & authorisation');
   check('protected route without token is 401', (await call('GET', '/matches/mine')).status === 401);
   check('wrong password is 401', (await call('POST', '/auth/login', { body: { email: 'priya@university.edu', password: 'nope' } })).status === 401);
-  const [priya, rahul, security, admin] = await Promise.all([
+  const [priya, rahul, security, admin, meera] = await Promise.all([
     login('priya@university.edu'), login('rahul@university.edu'), login('security@university.edu'), login('admin@findit.campus', 'Admin@1234'),
+    login('meera@university.edu'),
   ]);
   check('all demo users can sign in', Boolean(priya && rahul && security && admin));
   const me = await call('GET', '/auth/me', { token: priya });
@@ -70,6 +71,7 @@ async function main() {
   check('students cannot open admin stats', (await call('GET', '/admin/stats', { token: rahul })).status === 403);
   const selfAdmin = await call('POST', '/auth/register', { body: { name: 'Mallory', email: `mallory${Date.now()}@university.edu`, password: 'Password1', role: 'admin' } });
   check('registering as admin gives a student account', selfAdmin.data?.user?.role === 'student');
+  check('new accounts start with 50 FindIt coins', selfAdmin.data?.user?.coins === 50);
 
   console.log('\nSocket.IO');
   const anonymous = io(BASE, { auth: {}, transports: ['websocket'], reconnection: false });
@@ -127,12 +129,16 @@ async function main() {
   check('owner gets a 6-digit handover code', /^\d{6}$/.test(code || ''));
   const wrong = code === '000000' ? '111111' : '000000';
   check('wrong code is refused', (await call('POST', `/recovery/${recId}/complete`, { token: security, body: { code: wrong } })).status === 400);
+  const coinsOf = async (token) => (await call('GET', '/coins/me', { token })).data.balance;
+  const [secBefore, priyaBefore] = [await coinsOf(security), await coinsOf(priya)];
   const done = await call('POST', `/recovery/${recId}/complete`, { token: security, body: { code: `FINDIT:${recId}:${code}` } });
   check('QR payload completes the handover', done.data?.recovery?.status === 'completed', JSON.stringify(done.data));
   const lostAfter = await call('GET', `/lost-items/${idMatch.lostItem._id}`, { token: priya });
   const matchAfter = await call('GET', `/matches/${idMatch._id}`, { token: priya });
   check('lost report is now recovered', lostAfter.data.item.status === 'recovered');
   check('match is now verified', matchAfter.data.match.status === 'verified');
+  check('finder earned 50 FindIt coins', (await coinsOf(security)) === secBefore + 50);
+  check('owner earned 10 FindIt coins', (await coinsOf(priya)) === priyaBefore + 10);
 
   console.log('\nReporting with a photo');
   const preview = await call('POST', '/ai/analyze', { token: rahul, form: imageForm({}, 'image', 'keys_b.jpg') });
@@ -151,6 +157,63 @@ async function main() {
     status = (await call('GET', `/found-items/${created.data.item._id}`)).data.item.aiDetection.processingStatus;
   }
   check('AI processed the new report', status === 'done', status);
+  const rahulHistory = (await call('GET', '/coins/me', { token: rahul })).data.history;
+  check('found report with photo earned coins', rahulHistory.some((t) => t.reason === 'found_report' && t.foundItem === created.data.item._id));
+
+  console.log('\nFindIt coins & rewards');
+  const today = new Date().toISOString().slice(0, 10);
+  const rahulCoins = await coinsOf(rahul);
+  const lostForm = (extra) => imageForm({ title: 'Calculator', category: 'Other', building: 'Main Library', lostDate: today, ...extra });
+  check('reward larger than balance is refused', (await call('POST', '/lost-items', { token: rahul, form: lostForm({ rewardCoins: '100' }) })).status === 400);
+  check('odd reward amount is refused', (await call('POST', '/lost-items', { token: rahul, form: lostForm({ rewardCoins: '7' }) })).status === 400);
+  const calc = await call('POST', '/lost-items', {
+    token: rahul,
+    form: imageForm({ title: 'Blue Casio scientific calculator', category: 'Other', building: 'Main Library', area: 'Reading hall', lostDate: today, description: 'Casio fx-991 calculator, blue cover', rewardCoins: '10' }),
+  });
+  check('lost report without photo + 10 coin reward created', calc.status === 201 && calc.data.item.rewardCoins === 10);
+  check('reward coins are held from the owner', (await coinsOf(rahul)) === rahulCoins - 10);
+
+  console.log('\nMatching without photos (report details)');
+  const calcFound = await call('POST', '/found-items', {
+    token: meera,
+    form: imageForm({ title: 'Casio calculator', category: 'Other', building: 'Main Library', foundDate: today, description: 'Blue scientific calculator left on a desk' }),
+  });
+  check('found report without photo created', calcFound.status === 201);
+  await wait(1500);
+  const calcMatches = (await call('GET', `/matches/item/lost/${calc.data.item._id}`, { token: rahul })).data.matches;
+  const calcMatch = calcMatches.find((m) => m.foundItem._id === calcFound.data.item._id);
+  check('details-only match created', calcMatch?.method === 'details', JSON.stringify(calcMatches.map((m) => [m.method, m.combinedScore])));
+  const rahulNotes = (await call('GET', '/notifications', { token: rahul })).data.notifications;
+  const meeraNotes = (await call('GET', '/notifications', { token: meera })).data.notifications;
+  check('owner alerted about the details match', rahulNotes.some((n) => n.relatedMatch === calcMatch?._id));
+  check('finder alerted about the details match', meeraNotes.some((n) => n.relatedMatch === calcMatch?._id));
+  const archived = await call('PATCH', `/lost-items/${calc.data.item._id}`, { token: rahul, body: { status: 'archived' } });
+  check('archiving refunds the held reward', archived.status === 200 && (await coinsOf(rahul)) === rahulCoins);
+
+  console.log('\nName on the item -> owner told directly');
+  const arun = await login('arun@university.edu');
+  const named = await call('POST', '/found-items', {
+    token: priya,
+    form: imageForm({ title: 'Black notebook', category: 'Books/Notes', building: 'Academic Block A', foundDate: today, ownerHint: 'arun@university.edu' }),
+  });
+  check('found report with owner hint created', named.status === 201);
+  const publicView = (await call('GET', `/found-items/${named.data.item._id}`)).data.item;
+  check('owner hint is never shown publicly', !('ownerHint' in publicView));
+  const arunNotes = (await call('GET', '/notifications', { token: arun })).data.notifications;
+  check('named owner was notified', arunNotes.some((n) => n.relatedFoundItem === named.data.item._id));
+  check('item page tells the named owner', (await call('GET', `/found-items/${named.data.item._id}`, { token: arun })).data.namedOnItem === true);
+  check('item page does not tell others', (await call('GET', `/found-items/${named.data.item._id}`, { token: rahul })).data.namedOnItem === false);
+  check('finder cannot say "this is mine"', (await call('POST', `/found-items/${named.data.item._id}/mine`, { token: priya, body: {} })).status === 400);
+  const mineRes = await call('POST', `/found-items/${named.data.item._id}/mine`, { token: arun, body: { description: 'Lost it after the maths lecture' } });
+  check('"This is mine" opens a match', mineRes.status === 201 && Boolean(mineRes.data.matchId));
+  const mineMatch = (await call('GET', `/matches/${mineRes.data.matchId}`, { token: arun })).data.match;
+  check('that match is owner-confirmed', mineMatch.method === 'owner' && mineMatch.status === 'accepted');
+  const priyaNotes = (await call('GET', '/notifications', { token: priya })).data.notifications;
+  check('finder told that the owner came forward', priyaNotes.some((n) => n.relatedMatch === mineRes.data.matchId));
+  check('chat is open straight away', (await call('POST', `/matches/${mineRes.data.matchId}/messages`, { token: arun, body: { body: 'It has my name on the first page.' } })).status === 201);
+  check('repeating "this is mine" reuses the match', (await call('POST', `/found-items/${named.data.item._id}/mine`, { token: arun, body: {} })).data.matchId === mineRes.data.matchId);
+  const leaderboard = (await call('GET', '/coins/leaderboard')).data.leaderboard;
+  check('leaderboard lists finders', leaderboard.length > 0 && leaderboard[0].earned > 0);
 
   console.log('\nModeration & admin');
   check('flag needs a reason', (await call('POST', `/found-items/${created.data.item._id}/flag`, { token: priya, body: {} })).status === 400);
@@ -169,8 +232,8 @@ async function main() {
   check('reset sets a new password', (await call('POST', `/auth/reset-password/${token}`, { body: { password: 'NewPass@123' } })).status === 200);
   check('can log in with the new password', Boolean(await login('meera@university.edu', 'NewPass@123')));
   check('reset link cannot be reused', (await call('POST', `/auth/reset-password/${token}`, { body: { password: 'Another@123' } })).status === 400);
-  const meera = await login('meera@university.edu', 'NewPass@123');
-  await call('PATCH', '/auth/password', { token: meera, body: { currentPassword: 'NewPass@123', newPassword: 'Test@1234' } });
+  const meeraNew = await login('meera@university.edu', 'NewPass@123');
+  await call('PATCH', '/auth/password', { token: meeraNew, body: { currentPassword: 'NewPass@123', newPassword: 'Test@1234' } });
   check('change password restores the demo password', Boolean(await login('meera@university.edu')));
 
   priyaSocket.close();

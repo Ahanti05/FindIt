@@ -282,3 +282,33 @@ body {
 .img-preview-wrapper:hover img { transform: scale(1.04); }
 
 }
+
+/* ── Hoot the owl ─────────────────────────────────────────────────────── */
+@keyframes owl-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.1); }
+}
+@keyframes owl-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+.owl .owl-eyes { transform-box: fill-box; transform-origin: center; animation: owl-blink 4.5s infinite; }
+.owl-bob { animation: owl-bob 3.2s ease-in-out infinite; }
+
+/* ── FindIt coins ─────────────────────────────────────────────────────── */
+@keyframes coin-pop {
+  0% { opacity: 0; transform: translate(-50%, 4px) scale(0.8); }
+  20% { opacity: 1; transform: translate(-50%, -6px) scale(1.05); }
+  100% { opacity: 0; transform: translate(-50%, -26px) scale(1); }
+}
+.coin-pop {
+  position: absolute; left: 50%; top: -4px;
+  font-weight: 800; font-size: 0.75rem; color: #b45309; white-space: nowrap;
+  animation: coin-pop 1.8s ease-out forwards; pointer-events: none;
+}
+@keyframes coin-bump { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+.coin-bump { animation: coin-bump 0.18s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .owl .owl-eyes, .owl-bob, .coin-pop, .coin-bump { animation: none; }
+}

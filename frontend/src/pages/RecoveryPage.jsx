@@ -6,14 +6,16 @@ import toast from 'react-hot-toast';
 import { QRCodeSVG } from 'qrcode.react';
 import { clsx } from 'clsx';
 import { recoveryApi, errorMessage } from '../services/api';
-import { HANDOVER_LABELS } from '../context/MetaContext';
+import { HANDOVER_LABELS, useMeta } from '../context/MetaContext';
 import { StatusBadge, Thumb, Modal } from '../components/ui';
+import Owl, { Coin } from '../components/Owl';
 
 export default function RecoveryPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const { coinRules } = useMeta();
 
   const load = useCallback(() => recoveryApi.getById(id)
     .then(({ data: d }) => setData(d))
@@ -70,9 +72,21 @@ export default function RecoveryPage() {
       {reviewer && status === 'pending' && <ReviewForm recovery={recovery} onDone={load} />}
       {reviewer && status === 'approved' && <CompleteForm recovery={recovery} onDone={load} />}
       {status === 'completed' && (
-        <Panel tone="green" icon={CheckCircle2} title="Item returned">
-          Handed over on {format(new Date(recovery.handoverCompletedAt), 'd MMM yyyy, HH:mm')}{recovery.handoverLocation ? ` at ${recovery.handoverLocation}` : ''}. Both reports are closed.
-        </Panel>
+        <div className="card border border-[var(--color-green-100)] bg-[#f0fdf4] p-5 flex flex-wrap sm:flex-nowrap items-center gap-5">
+          <Owl mood="cheer" size={96} />
+          <div className="flex-1 min-w-0">
+            <p className="font-display font-bold text-lg text-[#166534]">Item returned to its owner</p>
+            <p className="text-sm text-[#166534] mt-1">
+              Handed over on {format(new Date(recovery.handoverCompletedAt), 'd MMM yyyy, HH:mm')}{recovery.handoverLocation ? ` at ${recovery.handoverLocation}` : ''}. Both reports are closed.
+            </p>
+            <p className="text-sm font-semibold text-[#92400e] mt-3 flex items-center gap-1.5">
+              <Coin size={18} />
+              {role === 'claimant'
+                ? `You earned ${coinRules.RECOVERY_CLOSED} FindIt coins${lostItem?.rewardCoins ? `, and your ${lostItem.rewardCoins}-coin reward went to the finder` : ''}.`
+                : `${role === 'finder' ? 'You' : 'The finder'} earned ${coinRules.ITEM_RETURNED + (lostItem?.rewardCoins || 0)} FindIt coins for returning it.`}
+            </p>
+          </div>
+        </div>
       )}
       {status === 'denied' && (
         <Panel tone="red" icon={XCircle} title="Claim not approved">

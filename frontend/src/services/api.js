@@ -50,7 +50,11 @@ const itemApi = (base) => ({
   flag: (id, reason) => api.post(`${base}/${id}/flag`, { reason }),
 });
 export const lostApi = itemApi('/lost-items');
-export const foundApi = itemApi('/found-items');
+export const foundApi = {
+  ...itemApi('/found-items'),
+  // "This is mine" – opens a match with the finder for an owner who never filed a lost report
+  claimMine: (id, description) => api.post(`/found-items/${id}/mine`, { description }),
+};
 export const itemsApi = (type) => (type === 'lost' ? lostApi : foundApi);
 
 // ─── Matches & chat ───────────────────────────────────────────────────────────
@@ -87,6 +91,12 @@ export const aiApi = {
     fd.append('image', file);
     return api.post('/ai/analyze', fd, { ...multipart, timeout: 90000 });
   },
+};
+
+// ─── FindIt coins ─────────────────────────────────────────────────────────────
+export const coinApi = {
+  me: () => api.get('/coins/me'),
+  leaderboard: () => api.get('/coins/leaderboard'),
 };
 
 // ─── Public ───────────────────────────────────────────────────────────────────

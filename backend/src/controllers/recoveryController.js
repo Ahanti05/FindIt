@@ -4,6 +4,7 @@ const Match = require('../models/Match');
 const LostItem = require('../models/LostItem');
 const FoundItem = require('../models/FoundItem');
 const { saveImage } = require('../services/storage');
+const coins = require('../services/coinService');
 const { createNotification, notifyAdmins } = require('./notificationController');
 const { HttpError, idOf } = require('../utils/http');
 
@@ -108,7 +109,7 @@ const getRecovery = async (req, res, next) => {
       .populate('claimant', 'name email department studentId')
       .populate('finder', 'name department')
       .populate('reviewedBy', 'name role')
-      .populate('lostItem', 'title category image identifyingCharacteristics colors')
+      .populate('lostItem', 'title category image identifyingCharacteristics colors rewardCoins')
       .populate('foundItem', 'title category image handoverPreference currentLocation');
     if (!recovery) throw new HttpError(404, 'Recovery request not found');
 
@@ -204,16 +205,18 @@ const completeRecovery = async (req, res, next) => {
     recovery.handoverConfirmedBy = req.user._id;
     await recovery.save();
 
-    await Promise.all([
-      LostItem.updateOne({ _id: recovery.lostItem }, { status: 'recovered' }),
-      FoundItem.updateOne({ _id: recovery.foundItem }, { status: 'returned' }),
+    const [lostItem, foundItem] = await Promise.all([
+      LostItem.findByIdAndUpdate(recovery.lostItem, { status: 'recovered' }, { new: true }),
+      FoundItem.findByIdAndUpdate(recovery.foundItem, { status: 'returned' }, { new: true }),
       Match.updateOne({ _id: recovery.match }, { status: 'verified' }),
     ]);
+    await coins.settleRecovery({ recovery, lostItem, foundItem });
+    const earned = coins.COINS.ITEM_RETURNED + (lostItem.rewardCoins || 0);
 
     const notice = {
       type: 'recovery_completed',
       title: 'Handover complete',
-      message: 'The item has been returned to its owner. Thank you for using FindIt.',
+      message: `The item is back with its owner. The finder earned ${earned} FindIt coins – thank you!`,
       relatedRecovery: recovery._id,
       actionUrl: `/recovery/${recovery._id}`,
     };

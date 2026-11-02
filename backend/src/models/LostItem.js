@@ -21,6 +21,9 @@ const lostItemSchema = new mongoose.Schema(
     },
     rewardOffered: { type: Boolean, default: false },
     rewardDescription: { type: String, maxlength: 200 },
+    // FindIt coins held from the owner and paid to the finder on handover
+    rewardCoins: { type: Number, default: 0, min: 0 },
+    rewardCoinsSettled: { type: Boolean, default: false },
   },
   {
     timestamps: true,

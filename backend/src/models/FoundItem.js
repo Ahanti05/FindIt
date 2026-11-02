@@ -10,6 +10,10 @@ const foundItemSchema = new mongoose.Schema(
     foundTime: { type: String, maxlength: 20 },
     // Where the item is being kept right now (shown publicly).
     currentLocation: { type: String, trim: true, maxlength: 200 },
+    // Name / roll number / email written on the item, if any. Private: only
+    // used to alert a registered owner who hasn't reported the loss yet.
+    ownerHint: { type: String, trim: true, maxlength: 120, select: false },
+    ownerNotified: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     handoverPreference: {
       type: String,
       enum: HANDOVER_OPTIONS,

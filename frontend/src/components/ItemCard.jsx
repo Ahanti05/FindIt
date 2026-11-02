@@ -3,6 +3,7 @@ import { MapPin, Clock, Gift } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { clsx } from 'clsx';
 import { CategoryIcon, StatusBadge } from './ui';
+import { Coin } from './Owl';
 
 export default function ItemCard({ item, type, showStatus = false }) {
   const location = type === 'lost' ? item.lastSeenLocation : item.foundLocation;
@@ -43,7 +44,9 @@ export default function ItemCard({ item, type, showStatus = false }) {
           {date && (
             <div className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 shrink-0" />{formatDistanceToNow(new Date(date), { addSuffix: true })}</div>
           )}
-          {item.rewardOffered && (
+          {item.rewardCoins > 0 ? (
+            <div className="flex items-center gap-1.5 font-semibold text-[#92400e]"><Coin size={14} />{item.rewardCoins} coin reward</div>
+          ) : item.rewardOffered && (
             <div className="flex items-center gap-1.5 text-[#92400e]"><Gift className="w-3.5 h-3.5 shrink-0" />Reward offered</div>
           )}
         </div>

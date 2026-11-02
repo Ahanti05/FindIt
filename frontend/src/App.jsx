@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
 import { MetaProvider } from './context/MetaContext';
+import { CoinProvider } from './context/CoinContext';
 
 import Layout from './components/Layout';
 import LandingPage from './pages/LandingPage';
@@ -18,6 +19,7 @@ import ItemDetailPage from './pages/ItemDetailPage';
 import MatchDetailPage from './pages/MatchDetailPage';
 import RecoveryPage from './pages/RecoveryPage';
 import ProfilePage from './pages/ProfilePage';
+import CoinsPage from './pages/CoinsPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 // Charts are only needed by admins – keep them out of the main bundle.
@@ -59,6 +61,7 @@ function AppRoutes() {
         <Route path="/matches/:matchId" element={<ProtectedRoute><MatchDetailPage /></ProtectedRoute>} />
         <Route path="/recovery/:id" element={<ProtectedRoute><RecoveryPage /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+        <Route path="/coins" element={<ProtectedRoute><CoinsPage /></ProtectedRoute>} />
 
         <Route path="/admin" element={<ProtectedRoute adminOnly><Suspense fallback={<div className="min-h-[60vh]" />}><AdminDashboard /></Suspense></ProtectedRoute>} />
 
@@ -74,6 +77,7 @@ export default function App() {
       <MetaProvider>
         <AuthProvider>
           <SocketProvider>
+            <CoinProvider>
             <AppRoutes />
             <Toaster
               position="top-right"
@@ -88,6 +92,7 @@ export default function App() {
                 error: { iconTheme: { primary: '#ef4444', secondary: '#fff' } },
               }}
             />
+            </CoinProvider>
           </SocketProvider>
         </AuthProvider>
       </MetaProvider>

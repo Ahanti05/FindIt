@@ -11,6 +11,7 @@ const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const mongoose = require('mongoose');
 const { connectDB, startExpiryJob } = require('./src/config/db');
+const { startAiRetryJob } = require('./src/services/aiPipeline');
 const { initSocket } = require('./src/services/socketService');
 const { UPLOAD_ROOT } = require('./src/services/storage');
 
@@ -69,6 +70,7 @@ app.use('/api/notifications', require('./src/routes/notifications'));
 app.use('/api/recovery', require('./src/routes/recovery'));
 app.use('/api/admin', require('./src/routes/admin'));
 app.use('/api/ai', require('./src/routes/ai'));
+app.use('/api/coins', require('./src/routes/coins'));
 app.use('/api', require('./src/routes/public'));
 
 app.get('/api/health', (req, res) => {
@@ -122,6 +124,7 @@ const PORT = process.env.PORT || 5000;
 const start = async () => {
   await connectDB();
   startExpiryJob();
+  startAiRetryJob();
   server.listen(PORT, () => console.log(`FindIt API running on http://localhost:${PORT}`));
 };
 

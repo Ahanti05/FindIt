@@ -6,6 +6,7 @@ import {
   Cable, GlassWater, Umbrella, Glasses, Shirt, BookOpen, Gem, Package, X, ArrowRight,
 } from 'lucide-react';
 import { clsx } from 'clsx';
+import Owl from './Owl';
 
 // ─── Category icon ────────────────────────────────────────────────────────────
 const CATEGORY_ICONS = {
@@ -76,12 +77,11 @@ export function Thumb({ item, className = 'w-14 h-14' }) {
 }
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
-export function EmptyState({ icon: Icon, title, desc, action }) {
+// `icon` is kept for callers; Hoot the owl stands in for it.
+export function EmptyState({ title, desc, action, mood = 'search' }) {
   return (
-    <div className="text-center py-16 px-4">
-      <div className="w-12 h-12 rounded-xl bg-[var(--color-canvas-dark)] flex items-center justify-center mx-auto mb-4">
-        <Icon className="w-5 h-5 text-[var(--color-ink-300)]" />
-      </div>
+    <div className="text-center py-12 px-4">
+      <Owl mood={mood} size={110} className="mx-auto mb-3" />
       <h3 className="font-display font-bold text-base text-[var(--color-ink-800)] mb-1.5">{title}</h3>
       <p className="text-sm text-[var(--color-ink-500)] max-w-sm mx-auto mb-5">{desc}</p>
       {action && (

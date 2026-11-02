@@ -17,6 +17,7 @@ const itemRouter = (type) => {
   router.delete('/:id', authenticate, c.remove);
   router.post('/:id/reprocess', authenticate, c.reprocess);
   router.post('/:id/flag', authenticate, c.flag);
+  if (type === 'found') router.post('/:id/mine', authenticate, c.thisIsMine);
 
   return router;
 };

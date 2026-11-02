@@ -23,6 +23,9 @@ const Notification = require('../src/models/Notification');
 const RecoveryRequest = require('../src/models/RecoveryRequest');
 const { saveImage, UPLOAD_ROOT } = require('../src/services/storage');
 const { processItem, aiHealth } = require('../src/services/aiPipeline');
+const CoinTransaction = require('../src/models/CoinTransaction');
+const coins = require('../src/services/coinService');
+const { alertNamedOwner } = require('../src/controllers/itemController');
 
 const IMAGES = path.join(__dirname, 'images');
 const daysAgo = (n) => new Date(Date.now() - n * 24 * 60 * 60 * 1000);
@@ -41,7 +44,7 @@ const LOST = [
     key: 'wallet', by: 'arun', photo: 'wallet.jpg', title: 'Brown leather wallet', category: 'Wallet',
     building: 'Central Cafeteria', area: 'Seating near the juice counter', date: daysAgo(2), lostTimeApprox: '13:00 – 14:00',
     description: 'Bifold brown leather wallet, quite worn at the edges. Has my college ID and a metro card inside.',
-    identifyingCharacteristics: 'Long scratch across the front flap', colors: 'Brown', rewardOffered: true, rewardDescription: 'Treat at the canteen',
+    identifyingCharacteristics: 'Long scratch across the front flap', colors: 'Brown', rewardOffered: true, rewardDescription: 'Treat at the canteen', rewardCoins: 25,
   },
   {
     key: 'keys', by: 'rahul', photo: 'keys_c.jpg', title: 'Bunch of keys with red Swiss Army knife', category: 'Keys',
@@ -93,12 +96,12 @@ const FOUND = [
   { key: 'keys_blue', by: 'rahul', photo: 'keys_a.jpg', title: 'Keys with blue tag and carabiner', category: 'Keys', building: 'Academic Block A', area: 'Stairs', date: daysAgo(2), currentLocation: 'With me', handoverPreference: 'in-person', description: 'Brass keys on a ring with a blue plastic tag.' },
   { key: 'usbc', by: 'security', photo: 'charger_a.jpg', title: 'White USB-C cable', category: 'Charger/Cable', building: 'Computer Labs', area: 'Lab 1 power strip', date: daysAgo(1), currentLocation: 'Computer Labs office', handoverPreference: 'lost-found-office', description: 'Coiled white USB-C cable.' },
   { key: 'umbrella', by: 'security', photo: 'umbrella_b.jpg', title: 'Small patterned umbrella', category: 'Umbrella', building: 'Girls Hostel', area: 'Reception', date: daysAgo(4), currentLocation: 'Hostel reception', handoverPreference: 'other', description: 'Compact folding umbrella with raindrop print.' },
-  { key: 'watch', by: 'priya', photo: 'watch.jpg', title: 'Silver analog watch', category: 'Watch', building: 'Student Activity Centre', area: 'Music room', date: daysAgo(3), currentLocation: 'Lost & Found Office', handoverPreference: 'lost-found-office', description: 'Automatic watch with a brown leather strap.' },
+  { key: 'watch', by: 'priya', photo: 'watch.jpg', title: 'Silver analog watch', category: 'Watch', building: 'Student Activity Centre', area: 'Music room', date: daysAgo(3), currentLocation: 'Lost & Found Office', handoverPreference: 'lost-found-office', description: 'Automatic watch with a brown leather strap.', ownerHint: 'Rahul Verma' },
   { key: 'earbuds', by: 'arun', photo: 'earbuds_a.jpg', title: 'White wireless earbuds in case', category: 'Earphones/AirPods', building: 'Central Cafeteria', area: 'Counter', date: daysAgo(2), currentLocation: 'With me', handoverPreference: 'in-person', description: 'White earbuds with a charging case.' },
 ];
 
 const reset = async () => {
-  await Promise.all([User, LostItem, FoundItem, Match, Message, Notification, RecoveryRequest]
+  await Promise.all([User, LostItem, FoundItem, Match, Message, Notification, RecoveryRequest, CoinTransaction]
     .map((M) => M.deleteMany({})));
   await fs.rm(UPLOAD_ROOT, { recursive: true, force: true });
   console.log('Cleared existing data and uploads.');
@@ -120,9 +123,13 @@ const createItem = async (Model, type, spec, reporterId) => {
       lostTimeApprox: spec.lostTimeApprox, identifyingCharacteristics: spec.identifyingCharacteristics,
       rewardOffered: Boolean(spec.rewardOffered), rewardDescription: spec.rewardDescription }
     : { ...base, foundLocation: { building: spec.building, area: spec.area }, foundDate: spec.date,
-      currentLocation: spec.currentLocation, handoverPreference: spec.handoverPreference };
+      currentLocation: spec.currentLocation, handoverPreference: spec.handoverPreference, ownerHint: spec.ownerHint };
+  if (spec.rewardCoins) doc.rewardCoins = spec.rewardCoins;
 
   const item = await Model.create(doc);
+  if (spec.rewardCoins) await coins.holdReward(reporterId, item._id, spec.rewardCoins);
+  if (type === 'found') await coins.awardFoundReport(reporterId, item._id);
+  if (spec.ownerHint) await alertNamedOwner(item, spec.ownerHint, await User.findById(reporterId));
   await processItem(item._id, type, buffer);
   return { item: await Model.findById(item._id), created: true };
 };
@@ -151,12 +158,18 @@ const playScenarios = async (users, lost, found) => {
       handoverCode: code, handoverLocation: 'Lost & Found Office, Admin Block', handoverCompletedAt: daysAgo(4),
       handoverConfirmedBy: users.admin._id,
     });
-    await Promise.all([
-      LostItem.updateOne({ _id: lost.backpack._id }, { status: 'recovered' }),
-      FoundItem.updateOne({ _id: found.backpack._id }, { status: 'returned' }),
+    const [lostBackpack, foundBackpack] = await Promise.all([
+      LostItem.findByIdAndUpdate(lost.backpack._id, { status: 'recovered' }, { new: true }),
+      FoundItem.findByIdAndUpdate(found.backpack._id, { status: 'returned' }, { new: true }),
       Match.updateOne({ _id: backpack._id }, { status: 'verified' }),
     ]);
-    console.log('  Scenario: backpack claimed and returned');
+    const done = await RecoveryRequest.findOne({ match: backpack._id });
+    // Timestamps are set at insert time; backdate the story so the timeline reads in order.
+    await RecoveryRequest.updateOne({ _id: done._id }, { createdAt: daysAgo(4.8) }, { timestamps: false });
+    const msgs = await Message.find({ match: backpack._id }).sort({ _id: 1 });
+    await Promise.all(msgs.map((m, i) => Message.updateOne({ _id: m._id }, { createdAt: daysAgo(5 - i * 0.1) }, { timestamps: false })));
+    await coins.settleRecovery({ recovery: done, lostItem: lostBackpack, foundItem: foundBackpack });
+    console.log('  Scenario: backpack claimed and returned (finder paid in coins)');
   }
 
   // Wallet: owner confirmed, chatting, claim waiting for the finder's review.
@@ -198,7 +211,11 @@ async function seed() {
 
   const users = {};
   for (const [key, u] of Object.entries(USERS)) {
-    users[key] = await User.findOne({ email: u.email }) || await User.create(u);
+    users[key] = await User.findOne({ email: u.email });
+    if (!users[key]) {
+      users[key] = await User.create(u);
+      await coins.award(users[key]._id, coins.COINS.WELCOME, 'welcome', { note: 'Welcome to FindIt' });
+    }
   }
   console.log(`Users ready: ${Object.keys(users).length}`);
 
@@ -221,8 +238,12 @@ async function seed() {
   const matches = await Match.find().populate('lostItem', 'title').populate('foundItem', 'title').sort({ combinedScore: -1 });
   console.log(`\nMatches generated by the AI: ${matches.length}`);
   matches.forEach((m) => console.log(
-    `  ${m.combinedScore.toFixed(2)}  (visual ${m.scoreBreakdown.visual.toFixed(2)})  ${m.lostItem.title}  <->  ${m.foundItem.title}  [${m.status}]`
+    `  ${m.combinedScore.toFixed(2)}  (${m.method}${m.scoreBreakdown.visual != null ? ` visual ${m.scoreBreakdown.visual.toFixed(2)}` : ''})  ${m.lostItem.title}  <->  ${m.foundItem.title}  [${m.status}]`
   ));
+
+  const balances = await User.find().select('name coins').sort({ coins: -1 });
+  console.log('\nFindIt coins');
+  balances.forEach((u) => console.log(`  ${String(u.coins).padStart(4)}  ${u.name}`));
 
   console.log('\nDemo logins');
   Object.values(USERS).forEach((u) => console.log(`  ${u.role.padEnd(8)} ${u.email.padEnd(26)} ${u.password}`));

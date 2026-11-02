@@ -18,11 +18,11 @@ const HANDOVER_OPTIONS = ['in-person', 'security-desk', 'lost-found-office', 'ot
 
 // Match thresholds on the combined score (0–1). See ai-service/matcher.py.
 // With the calibrated visual score, a different-category pair tops out at
-// ~0.44 even when place and date agree, so it is never stored; the same
-// object photographed twice scored >= 0.78 in calibration even across
-// different buildings.
+// ~0.44 even when place and date agree, so it is never stored. 0.60 alerts
+// both sides when two genuinely different photos of the same object agree
+// on category plus place or date; people still verify before any handover.
 const MATCH_STORE_MIN = parseFloat(process.env.MATCH_STORE_MIN) || 0.45;
-const MATCH_NOTIFY_MIN = parseFloat(process.env.MATCH_NOTIFY_MIN) || 0.7;
+const MATCH_NOTIFY_MIN = parseFloat(process.env.MATCH_NOTIFY_MIN) || 0.6;
 
 module.exports = {
   CATEGORIES,

@@ -4,6 +4,7 @@ const User = require('../models/User');
 const { saveImage } = require('../services/storage');
 const { sendMail } = require('../services/mailer');
 const { HttpError } = require('../utils/http');
+const coins = require('../services/coinService');
 
 const signToken = (userId) =>
   jwt.sign({ id: userId }, process.env.JWT_SECRET, {
@@ -34,6 +35,8 @@ const register = async (req, res, next) => {
     }
 
     const user = await User.create({ name, email, password, studentId, department, role: assignedRole });
+    await coins.award(user._id, coins.COINS.WELCOME, 'welcome', { note: 'Welcome to FindIt' });
+    user.coins = coins.COINS.WELCOME;
     res.status(201).json({ success: true, token: signToken(user._id), user: user.toSelfJSON() });
   } catch (err) {
     if (err.code === 11000) return next(new HttpError(409, 'Email already registered'));

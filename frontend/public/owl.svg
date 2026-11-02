@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <title>Hoot the FindIt owl</title>
+  <path d="M44 104 Q26 146 60 176 Q54 140 64 108 Z" fill="#EEF2F7" stroke="#CBD5E1" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M156 104 Q174 146 140 176 Q146 140 136 108 Z" fill="#EEF2F7" stroke="#CBD5E1" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M54 66 L56 22 L88 50 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M146 66 L144 22 L112 50 Z" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="3" stroke-linejoin="round"/>
+  <ellipse cx="100" cy="112" rx="62" ry="72" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="3"/>
+  <ellipse cx="100" cy="146" rx="36" ry="32" fill="#F4F6FA"/>
+  <g fill="none" stroke="#D5DDE8" stroke-width="2.5" stroke-linecap="round">
+    <path d="M79 134 Q86 141 93 134"/><path d="M107 134 Q114 141 121 134"/><path d="M93 148 Q100 155 107 148"/>
+    <path d="M79 162 Q86 169 93 162"/><path d="M107 162 Q114 169 121 162"/>
+  </g>
+  <circle cx="74" cy="88" r="27" fill="#F1F4FA"/>
+  <circle cx="126" cy="88" r="27" fill="#F1F4FA"/>
+  <ellipse cx="60" cy="114" rx="8" ry="4" fill="#FBCFE8" opacity="0.8"/>
+  <ellipse cx="140" cy="114" rx="8" ry="4" fill="#FBCFE8" opacity="0.8"/>
+  <circle cx="74" cy="88" r="19" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+  <circle cx="126" cy="88" r="19" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+  <circle cx="76" cy="89" r="11" fill="#6D5BD0"/>
+  <circle cx="128" cy="89" r="11" fill="#6D5BD0"/>
+  <circle cx="77" cy="90" r="5.5" fill="#0D1B2A"/>
+  <circle cx="129" cy="90" r="5.5" fill="#0D1B2A"/>
+  <circle cx="73" cy="85" r="3" fill="#FFFFFF"/>
+  <circle cx="125" cy="85" r="3" fill="#FFFFFF"/>
+  <path d="M100 100 L90 110 Q100 124 110 110 Z" fill="#F59E0B" stroke="#D97706" stroke-width="2" stroke-linejoin="round"/>
+  <ellipse cx="84" cy="183" rx="11" ry="5" fill="#F59E0B"/>
+  <ellipse cx="116" cy="183" rx="11" ry="5" fill="#F59E0B"/>
+</svg>
